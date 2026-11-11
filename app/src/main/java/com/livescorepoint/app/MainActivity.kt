@@ -30,111 +30,192 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun LiveScorePointApp() {
     var darkMode by remember { mutableStateOf(true) }
-    var selectedTab by remember { mutableStateOf("Home") }
+    var selectedTab by remember { mutableIntStateOf(0) }
 
-    val bg = if (darkMode) Color(0xFF101820) else Color(0xFFF3F5F7)
-    val card = if (darkMode) Color(0xFF1D2A35) else Color.White
-    val txt = if (darkMode) Color.White else Color(0xFF17212B)
-    val accent = Color(0xFF00C896)
+    val bg = if (darkMode) Color(0xFF0B1220) else Color(0xFFF3F6FA)
+    val card = if (darkMode) Color(0xFF172338) else Color.White
+    val text = if (darkMode) Color.White else Color(0xFF172338)
+    val green = Color(0xFF36D69A)
+    val blue = Color(0xFF3987FF)
 
     MaterialTheme {
         Scaffold(
             containerColor = bg,
             bottomBar = {
                 NavigationBar(containerColor = card) {
-                    listOf("Home", "Matches", "Tournaments", "Quiz", "Settings")
-                        .forEach { tab ->
-                            NavigationBarItem(
-                                selected = selectedTab == tab,
-                                onClick = { selectedTab = tab },
-                                icon = {},
-                                label = { Text(tab, fontSize = 10.sp) }
-                            )
-                        }
+                    val tabs = listOf("Home", "Matches", "Quiz", "Profile")
+                    tabs.forEachIndexed { index, label ->
+                        NavigationBarItem(
+                            selected = selectedTab == index,
+                            onClick = { selectedTab = index },
+                            icon = {},
+                            label = { Text(label) }
+                        )
+                    }
                 }
             }
         ) { padding ->
+
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+
                 item {
-                    Text(
-                        "LIVE SCORE POINT",
-                        color = accent,
-                        fontSize = 23.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        "Every Game. Every Moment.",
-                        color = txt,
-                        fontSize = 13.sp
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 18.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                "LSP",
+                                color = green,
+                                fontSize = 30.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                            Text(
+                                "LIVE SCORE POINT",
+                                color = text,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Text(
+                            if (darkMode) "☀️" else "🌙",
+                            fontSize = 24.sp,
+                            modifier = Modifier.clickable {
+                                darkMode = !darkMode
+                            }
+                        )
+                    }
+                }
+
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(blue, RoundedCornerShape(20.dp))
+                            .padding(20.dp)
+                    ) {
+                        Text(
+                            "SPORTS, STATS & QUIZ",
+                            color = Color.White,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            "Every Match.\nEvery Detail.",
+                            color = Color.White,
+                            fontSize = 27.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "Follow your favourite sports",
+                            color = Color.White
+                        )
+                    }
                 }
 
                 item {
                     when (selectedTab) {
-                        "Home" -> {
-                            Text("Sports", color = txt, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                            val sports = listOf(
-                                "🏏 Cricket", "⚽ Football",
-                                "🏑 Hockey", "🏎️ Formula 1",
-                                "🤼 Kabaddi", "🎮 Esports",
-                                "🏅 Olympics", "🌏 Asian Games"
-                            )
-                            sports.chunked(2).forEach { pair ->
-                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    pair.forEach { sport ->
-                                        SportCard(sport, card, txt, Modifier.weight(1f))
-                                    }
-                                }
-                                Spacer(Modifier.height(2.dp))
+                        0 -> SectionTitle("Sports", text)
+                        1 -> SectionTitle("Matches", text)
+                        2 -> SectionTitle("Quiz & Rewards", text)
+                        else -> SectionTitle("Your Profile", text)
+                    }
+                }
+
+                if (selectedTab == 0) {
+                    item {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                SportCard("🏏", "Cricket", green, Modifier.weight(1f))
+                                SportCard("⚽", "Football", blue, Modifier.weight(1f))
                             }
-                        }
-
-                        "Matches" -> {
-                            Text("Matches", color = txt, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                            MatchCard(card, txt, accent, "India", "Australia", "Match data coming soon")
-                        }
-
-                        "Tournaments" -> {
-                            Text("Tournaments", color = txt, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                            SportCard("Cricket Tournaments", card, txt)
-                            SportCard("Football Tournaments", card, txt)
-                            SportCard("Olympics & Asian Games", card, txt)
-                        }
-
-                        "Quiz" -> {
-                            Text("Quiz Zone", color = txt, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                            Text("Compete. Earn Points. Climb the Leaderboard.", color = accent)
-                            ScoreCard(card, txt, "Points + Leaderboards", "60%")
-                            ScoreCard(card, txt, "Achievements", "20%")
-                            ScoreCard(card, txt, "Accuracy", "20%")
-                            Text("Quizzes coming soon", color = txt)
-                        }
-
-                        "Settings" -> {
-                            Text("Settings", color = txt, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Dark Theme", color = txt, modifier = Modifier.weight(1f))
-                                Switch(
-                                    checked = darkMode,
-                                    onCheckedChange = { darkMode = it }
-                                )
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                SportCard("🏑", "Hockey", blue, Modifier.weight(1f))
+                                SportCard("🏎️", "Formula 1", green, Modifier.weight(1f))
                             }
-                            Text("Live Score Point v1.0", color = txt)
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                SportCard("🤼", "Kabaddi", green, Modifier.weight(1f))
+                                SportCard("🎮", "Esports", blue, Modifier.weight(1f))
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                SportCard("🏅", "Olympics", blue, Modifier.weight(1f))
+                                SportCard("🌏", "Asian Games", green, Modifier.weight(1f))
+                            }
                         }
                     }
                 }
 
-                if (selectedTab == "Home") {
+                if (selectedTab == 0 || selectedTab == 1) {
                     item {
-                        Text("Featured Match", color = txt, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                        MatchCard(card, txt, accent, "Team A", "Team B", "Demo scoreboard")
+                        InfoCard(card, text) {
+                            Text(
+                                "Match Centre",
+                                color = green,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Live match data will appear here after API integration.",
+                                color = text
+                            )
+                        }
                     }
+                }
+
+                if (selectedTab == 0 || selectedTab == 2) {
+                    item {
+                        InfoCard(card, text) {
+                            Text("🏆 Points & Leaderboards — 60%", color = text)
+                            Text("⭐ Achievements — 20%", color = text)
+                            Text("🎯 Quiz Accuracy — 20%", color = text)
+                            Text(
+                                "Quiz opens 24 hours before a match.",
+                                color = green
+                            )
+                        }
+                    }
+                }
+
+                if (selectedTab == 0 || selectedTab == 3) {
+                    item {
+                        InfoCard(card, text) {
+                            Text("Your Profile", color = green)
+                            Text("Favourite sports and achievements will appear here.", color = text)
+                        }
+                    }
+                }
+
+                if (selectedTab == 0) {
+                    item {
+                        InfoCard(card, text) {
+                            Text("Advertisement Space", color = green)
+                            Text(
+                                "AdMob integration will be added in a later update.",
+                                color = text
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    Text(
+                        "LIVE SCORE POINT • 2026",
+                        color = text.copy(alpha = 0.5f),
+                        fontSize = 11.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 20.dp)
+                    )
                 }
             }
         }
@@ -142,62 +223,50 @@ fun LiveScorePointApp() {
 }
 
 @Composable
+fun SectionTitle(title: String, color: Color) {
+    Text(
+        title,
+        color = color,
+        fontSize = 21.sp,
+        fontWeight = FontWeight.Bold
+    )
+}
+
+@Composable
 fun SportCard(
+    emoji: String,
     name: String,
-    card: Color,
-    txt: Color,
-    modifier: Modifier = Modifier.fillMaxWidth()
+    accent: Color,
+    modifier: Modifier = Modifier
 ) {
-    Card(
-        modifier = modifier.padding(bottom = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = card),
-        shape = RoundedCornerShape(14.dp)
+    Column(
+        modifier = modifier
+            .background(accent.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Text(emoji, fontSize = 27.sp)
         Text(
             name,
-            color = txt,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(16.dp)
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = accent
         )
     }
 }
 
 @Composable
-fun MatchCard(
-    card: Color,
-    txt: Color,
-    accent: Color,
-    team1: String,
-    team2: String,
-    status: String
+fun InfoCard(
+    background: Color,
+    textColor: Color,
+    content: @Composable ColumnScope.() -> Unit
 ) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = card),
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(18.dp)) {
-            Text(status, color = accent, fontSize = 12.sp)
-            Spacer(Modifier.height(10.dp))
-            Text("$team1  VS  $team2", color = txt, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-            Text("Live scores will appear here", color = txt, fontSize = 12.sp)
-        }
-    }
-}
-
-@Composable
-fun ScoreCard(card: Color, txt: Color, title: String, percentage: String) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = card),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            Modifier.padding(18.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(title, color = txt, modifier = Modifier.weight(1f))
-            Text(percentage, color = Color(0xFF00C896), fontWeight = FontWeight.Bold)
-        }
-    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(background, RoundedCornerShape(16.dp))
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        content = content
+    )
 }
