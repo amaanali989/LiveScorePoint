@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.*
@@ -82,8 +81,11 @@ private fun scoreText(obj: JSONObject): String {
 
     if (runs.isBlank()) return ""
 
-    val wicketText = if (wickets.isNotBlank()) "/$wickets" else ""
-    val overText = if (overs.isNotBlank()) " ($overs ov)" else ""
+    val wicketText =
+        if (wickets.isNotBlank()) "/$wickets" else ""
+
+    val overText =
+        if (overs.isNotBlank()) " ($overs ov)" else ""
 
     return "$runs$wicketText$overText"
 }
@@ -94,9 +96,9 @@ private fun classifyCricketMatch(
 ): String {
     val text = "$name $competition".lowercase()
 
-    val women'sLeagueCodes = listOf(
-        "wpl", "wbbl", "wcpl", "wcl", "womens premier",
-        "women's premier", "women premier", "women big bash"
+    val womenLeagueCodes = listOf(
+        "wpl", "wbbl", "wcpl", "women's premier",
+        "women premier", "women big bash"
     )
 
     val leagueWords = listOf(
@@ -113,7 +115,7 @@ private fun classifyCricketMatch(
     if (women) {
         return if (
             leagueWords.any { text.contains(it) } ||
-            women'sLeagueCodes.any { text.contains(it) }
+            womenLeagueCodes.any { text.contains(it) }
         ) {
             "Women's Leagues"
         } else {
@@ -121,7 +123,7 @@ private fun classifyCricketMatch(
         }
     }
 
-    if (women'sLeagueCodes.any { text.contains(it) }) {
+    if (womenLeagueCodes.any { text.contains(it) }) {
         return "Women's Leagues"
     }
 
@@ -689,3 +691,7 @@ fun MatchList(
                     "Live" -> "footballLive"
                     "Upcoming" -> "footballUpcoming"
                     else -> "footballMatches"
+                }
+
+                else -> when (filter) {
+          
