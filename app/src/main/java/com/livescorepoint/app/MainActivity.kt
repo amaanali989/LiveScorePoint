@@ -38,12 +38,22 @@ private val LiveGreen = Color(0xFF39B878)
 private val ErrorRed = Color(0xFFE16B6B)
 
 private val sportsList = listOf(
-    "Cricket", "Football", "Hockey",
-    "Esports", "F1", "Wrestling", "Kabaddi"
+    "Cricket",
+    "Football",
+    "Hockey",
+    "Esports",
+    "F1",
+    "Wrestling",
+    "Kabaddi"
 )
 
 private val navigationItems = listOf(
-    "Home", "Live", "News", "Quiz", "Stats", "More"
+    "Home",
+    "Live",
+    "News",
+    "Quiz",
+    "Stats",
+    "More"
 )
 
 private val cricketCategories = listOf(
@@ -73,29 +83,20 @@ data class MatchItem(
     val isFinished: Boolean = false
 )
 
-data class NewsItem(
-    val title: String,
-    val description: String = "",
-    val image: String = "",
-    val source: String = "",
-    val url: String = ""
-)
-
-data class QuizEvent(
-    val id: String,
-    val sport: String,
-    val title: String,
-    val question: String,
-    val options: List<String>,
-    val correctAnswer: String = ""
-)
-
 enum class AppSection {
-    HOME, LIVE, NEWS, QUIZ, STATS, MORE,
-    RANKINGS, MATCH_DETAILS
+    HOME,
+    LIVE,
+    NEWS,
+    QUIZ,
+    STATS,
+    MORE,
+    RANKINGS,
+    MATCH_DETAILS
 }
 
-private fun JSONObject.readString(vararg keys: String): String {
+private fun JSONObject.readString(
+    vararg keys: String
+): String {
     for (key in keys) {
         val value = optString(key, "")
         if (value.isNotBlank() && value != "null") {
@@ -142,7 +143,6 @@ private fun isMatchFinished(status: String): Boolean {
         value.contains("full time")
 }
 
-// Stumps wale match ko LIVE nahi dikhana
 private fun isMatchStumps(status: String): Boolean {
     return status.lowercase().contains("stumps")
 }
@@ -297,10 +297,7 @@ private fun parseCricketMatches(
 
         result.add(
             MatchItem(
-                id = item.readString(
-                    "id",
-                    "matchId"
-                ),
+                id = item.readString("id", "matchId"),
                 sport = "Cricket",
                 home = home,
                 away = away,
@@ -358,17 +355,15 @@ private fun parseFootballMatches(
             "status"
         )
 
-        val statusCode = status.lowercase()
-
         val finished =
-            statusCode == "finished" ||
+            status.equals("finished", true) ||
                 isMatchFinished(status)
 
         val live =
             !finished &&
                 !isMatchStumps(status) &&
                 (
-                    statusCode == "live" ||
+                    status.equals("live", true) ||
                     isMatchLive(status)
                 )
 
@@ -539,7 +534,9 @@ private fun SportexXApp() {
             }
 
             if (endpoint.isBlank()) {
+
                 matches = emptyList()
+
             } else {
 
                 val response = fetchApi(endpoint)
@@ -574,6 +571,7 @@ private fun SportexXApp() {
             errorMessage = e.message ?: "Unable to load matches"
 
         } finally {
+
             loading = false
         }
     }
@@ -598,80 +596,94 @@ private fun SportexXApp() {
             )
         }
 
-        when {
+        // Main content ko remaining space milegi.
+        // Bottom navigation iske bahar fixed rahegi.
 
-            selectedMatch != null -> {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
 
-                MatchCentreScreen(
-                    match = selectedMatch!!,
-                    onBack = {
-                        selectedMatch = null
-                    }
-                )
-            }
+            when {
 
-            selectedSection == AppSection.HOME ||
-                selectedSection == AppSection.LIVE -> {
+                selectedMatch != null -> {
 
-                SportHomeScreen(
-                    selectedSport = selectedSport,
-                    selectedFilter = selectedFilter,
-                    selectedCategory = selectedCategory,
-                    matches = matches,
-                    loading = loading,
-                    errorMessage = errorMessage,
-                    onFilterChange = {
-                        selectedFilter = it
-                    },
-                    onCategoryChange = {
-                        selectedCategory = it
-                    },
-                    onRefresh = {
-                        refreshKey++
-                    },
-                    onMatchClick = {
-                        selectedMatch = it
-                    }
-                )
-            }
+                    MatchCentreScreen(
+                        match = selectedMatch!!,
+                        onBack = {
+                            selectedMatch = null
+                        }
+                    )
+                }
 
-            selectedSection == AppSection.NEWS -> {
-                NewsScreen()
-            }
+                selectedSection == AppSection.HOME ||
+                    selectedSection == AppSection.LIVE -> {
 
-            selectedSection == AppSection.QUIZ -> {
-                QuizScreen(selectedSport)
-            }
+                    SportHomeScreen(
+                        selectedSport = selectedSport,
+                        selectedFilter = selectedFilter,
+                        selectedCategory = selectedCategory,
+                        matches = matches,
+                        loading = loading,
+                        errorMessage = errorMessage,
+                        onFilterChange = {
+                            selectedFilter = it
+                        },
+                        onCategoryChange = {
+                            selectedCategory = it
+                        },
+                        onRefresh = {
+                            refreshKey++
+                        },
+                        onMatchClick = {
+                            selectedMatch = it
+                        }
+                    )
+                }
 
-            selectedSection == AppSection.STATS -> {
-                StatsScreen(selectedSport)
-            }
+                selectedSection == AppSection.NEWS -> {
+                    NewsScreen()
+                }
 
-            selectedSection == AppSection.MORE -> {
-                MoreScreen(
-                    onOpenRankings = {
-                        selectedSection = AppSection.RANKINGS
-                    }
-                )
-            }
+                selectedSection == AppSection.QUIZ -> {
+                    QuizScreen(selectedSport)
+                }
 
-            selectedSection == AppSection.RANKINGS -> {
-                RankingsScreen(
-                    onBack = {
-                        selectedSection = AppSection.MORE
-                    }
-                )
+                selectedSection == AppSection.STATS -> {
+                    StatsScreen(selectedSport)
+                }
+
+                selectedSection == AppSection.MORE -> {
+                    MoreScreen(
+                        onOpenRankings = {
+                            selectedSection = AppSection.RANKINGS
+                        }
+                    )
+                }
+
+                selectedSection == AppSection.RANKINGS -> {
+                    RankingsScreen(
+                        onBack = {
+                            selectedSection = AppSection.MORE
+                        }
+                    )
+                }
             }
         }
 
-        if (selectedMatch == null) {
+        // FIXED BOTTOM NAVIGATION
 
-            Spacer(Modifier.weight(1f))
+        if (selectedMatch == null) {
 
             BottomNavigationBar(
                 selectedSection = selectedSection,
                 onSectionChange = {
                     selectedSection = it
+
+                    if (it == AppSection.LIVE) {
+                        selectedFilter = "Live"
+                    }
                 }
             )
         }
@@ -853,7 +865,6 @@ private fun BottomNavigationBar(
         }
     }
 }
-
 @Composable
 private fun SportHomeScreen(
     selectedSport: String,
@@ -924,7 +935,6 @@ private fun SportHomeScreen(
             }
 
             else -> {
-
                 Column(Modifier.fillMaxSize()) {
 
                     Row(
@@ -1123,77 +1133,92 @@ private fun SportMatchCard(
     match: MatchItem,
     onClick: () -> Unit
 ) {
-    Card(
+
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() },
-        shape = RoundedCornerShape(11.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = CardColor
-        )
+        color = CardColor,
+        shape = RoundedCornerShape(13.dp)
     ) {
-        Column(Modifier.padding(13.dp)) {
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(
+            modifier = Modifier.padding(13.dp)
+        ) {
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+
                 Text(
-                    match.competition.ifBlank { match.sport },
+                    match.competition.ifBlank {
+                        match.sport
+                    },
                     color = SecondaryText,
                     fontSize = 11.sp,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1
+                    modifier = Modifier.weight(1f)
                 )
 
-                Text(
-                    when {
-                        match.isLive -> "LIVE"
-                        match.isFinished -> "FINISHED"
-                        else -> "UPCOMING"
-                    },
-                    color = when {
-                        match.isLive -> LiveGreen
-                        match.isFinished -> SecondaryText
-                        else -> AccentBlue
-                    },
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                if (match.isLive) {
+                    Text(
+                        "● LIVE",
+                        color = LiveGreen,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else if (match.isFinished) {
+                    Text(
+                        "FINISHED",
+                        color = SecondaryText,
+                        fontSize = 9.sp
+                    )
+                }
             }
 
-            Spacer(Modifier.height(13.dp))
+            Spacer(Modifier.height(12.dp))
 
-            TeamMatchRow(match.home, match.homeLogo, match.homeScore)
+            TeamMatchRow(
+                name = match.home,
+                logo = match.homeLogo,
+                score = match.homeScore
+            )
 
             Spacer(Modifier.height(10.dp))
 
-            TeamMatchRow(match.away, match.awayLogo, match.awayScore)
+            TeamMatchRow(
+                name = match.away,
+                logo = match.awayLogo,
+                score = match.awayScore
+            )
 
-            if (match.status.isNotBlank() || match.venue.isNotBlank()) {
-                Spacer(Modifier.height(11.dp))
+            if (match.status.isNotBlank()) {
+                Spacer(Modifier.height(12.dp))
 
-                HorizontalDivider(
-                    color = Color(0xFF304056),
-                    thickness = 0.6.dp
+                Text(
+                    match.status,
+                    color = if (match.isLive) LiveGreen else SecondaryText,
+                    fontSize = 11.sp
                 )
+            } else if (match.date.isNotBlank() || match.time.isNotBlank()) {
+                Spacer(Modifier.height(12.dp))
 
-                Spacer(Modifier.height(8.dp))
+                Text(
+                    listOf(match.date, match.time)
+                        .filter { it.isNotBlank() }
+                        .joinToString(" • "),
+                    color = SecondaryText,
+                    fontSize = 11.sp
+                )
+            }
 
-                if (match.status.isNotBlank()) {
-                    Text(
-                        match.status,
-                        color = if (match.isLive) LiveGreen else SecondaryText,
-                        fontSize = 11.sp
-                    )
-                }
+            if (match.venue.isNotBlank()) {
+                Spacer(Modifier.height(5.dp))
 
-                if (match.venue.isNotBlank()) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        match.venue,
-                        color = SecondaryText,
-                        fontSize = 10.sp,
-                        maxLines = 1
-                    )
-                }
+                Text(
+                    match.venue,
+                    color = SecondaryText,
+                    fontSize = 10.sp
+                )
             }
         }
     }
@@ -1205,27 +1230,28 @@ private fun TeamMatchRow(
     logo: String,
     score: String
 ) {
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
+
         TeamLogoView(logo, name)
 
         Spacer(Modifier.width(10.dp))
 
         Text(
-            name,
+            name.ifBlank { "Team" },
             color = PrimaryText,
-            fontSize = 13.sp,
+            fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.weight(1f),
-            maxLines = 1
+            modifier = Modifier.weight(1f)
         )
 
         Text(
-            score.ifBlank { "-" },
+            score,
             color = PrimaryText,
-            fontSize = 13.sp,
+            fontSize = 14.sp,
             fontWeight = FontWeight.Bold
         )
     }
@@ -1233,27 +1259,35 @@ private fun TeamMatchRow(
 
 @Composable
 private fun TeamLogoView(
-    imageUrl: String,
+    logo: String,
     teamName: String
 ) {
-    if (imageUrl.isNotBlank()) {
+
+    if (logo.startsWith("http")) {
+
         AsyncImage(
-            model = imageUrl,
+            model = logo,
             contentDescription = teamName,
             modifier = Modifier.size(29.dp)
         )
+
     } else {
+
         Box(
             modifier = Modifier
                 .size(29.dp)
-                .background(SoftBlue, RoundedCornerShape(50)),
+                .background(
+                    SoftBlue,
+                    RoundedCornerShape(50)
+                ),
             contentAlignment = Alignment.Center
         ) {
+
             Text(
-                teamName.take(1).uppercase(),
+                teamName.firstOrNull()?.uppercase() ?: "?",
                 color = PrimaryText,
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.sp
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
             )
         }
     }
@@ -1261,9 +1295,10 @@ private fun TeamLogoView(
 
 @Composable
 private fun EmptyMatchesScreen(
-    selectedFilter: String,
+    filter: String,
     onRefresh: () -> Unit
 ) {
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1271,31 +1306,18 @@ private fun EmptyMatchesScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(
-            Icons.Default.Sports,
-            contentDescription = null,
-            tint = SecondaryText,
-            modifier = Modifier.size(42.dp)
-        )
-
-        Spacer(Modifier.height(13.dp))
 
         Text(
-            when (selectedFilter) {
-                "Live" -> "No live matches"
-                "Upcoming" -> "No upcoming matches"
-                "Recent" -> "No recent matches"
-                else -> "No matches available"
-            },
+            "No $filter matches",
             color = PrimaryText,
             fontSize = 17.sp,
             fontWeight = FontWeight.Bold
         )
 
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(7.dp))
 
         Text(
-            "Abhi is section mein match available nahi hai.",
+            "Matches will appear here when available.",
             color = SecondaryText,
             fontSize = 12.sp,
             textAlign = TextAlign.Center
@@ -1303,8 +1325,8 @@ private fun EmptyMatchesScreen(
 
         Spacer(Modifier.height(16.dp))
 
-        OutlinedButton(onClick = onRefresh) {
-            Text("Refresh")
+        TextButton(onClick = onRefresh) {
+            Text("Refresh", color = AccentBlue)
         }
     }
 }
@@ -1312,32 +1334,25 @@ private fun EmptyMatchesScreen(
 @Composable
 private fun ErrorScreen(
     message: String,
-    onRetry: () -> Unit
+    onRefresh: () -> Unit
 ) {
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(25.dp),
+            .padding(22.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(
-            Icons.Default.CloudOff,
-            contentDescription = null,
-            tint = ErrorRed,
-            modifier = Modifier.size(40.dp)
-        )
-
-        Spacer(Modifier.height(12.dp))
 
         Text(
             "Unable to load matches",
             color = PrimaryText,
-            fontWeight = FontWeight.Bold,
-            fontSize = 17.sp
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold
         )
 
-        Spacer(Modifier.height(7.dp))
+        Spacer(Modifier.height(8.dp))
 
         Text(
             message,
@@ -1346,16 +1361,18 @@ private fun ErrorScreen(
             textAlign = TextAlign.Center
         )
 
-        Spacer(Modifier.height(15.dp))
+        Spacer(Modifier.height(12.dp))
 
-        Button(onClick = onRetry) {
-            Text("Try Again")
+        TextButton(onClick = onRefresh) {
+            Text("Try Again", color = AccentBlue)
         }
     }
 }
 
 @Composable
-private fun ComingSoonScreen(sport: String) {
+private fun ComingSoonScreen(
+    sport: String
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1363,397 +1380,300 @@ private fun ComingSoonScreen(sport: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(
-            "SPORTEXX",
-            color = AccentBlue,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.ExtraBold,
-            letterSpacing = 2.sp
-        )
-
-        Spacer(Modifier.height(15.dp))
 
         Text(
             sport,
             color = PrimaryText,
-            fontSize = 25.sp,
+            fontSize = 21.sp,
             fontWeight = FontWeight.Bold
         )
 
         Spacer(Modifier.height(9.dp))
 
         Text(
-            "We're Working on It",
-            color = PrimaryText,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        Spacer(Modifier.height(8.dp))
-
-        Text(
             "This feature is coming soon.",
             color = SecondaryText,
-            fontSize = 13.sp,
-            textAlign = TextAlign.Center
+            fontSize = 13.sp
         )
     }
 }
-
-// MATCH CENTRE
 
 @Composable
 private fun MatchCentreScreen(
     match: MatchItem,
     onBack: () -> Unit
 ) {
-    val tabs = if (match.sport.equals("Cricket", true)) {
-        listOf(
-            "Info", "Overview", "Scorecard",
-            "Squad", "Stats", "H2H", "Highlights"
-        )
-    } else {
-        listOf(
-            "Info", "Overview", "Lineups",
-            "Stats", "H2H", "Highlights"
-        )
-    }
-
-    var selectedTab by remember {
-        mutableStateOf("Overview")
-    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(AppBackground)
     ) {
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(SurfaceColor)
-                .padding(horizontal = 12.dp, vertical = 13.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.Default.ArrowBack,
-                    contentDescription = "Back",
-                    tint = PrimaryText
-                )
+
+            TextButton(onClick = onBack) {
+                Text("‹ Back", color = AccentBlue)
             }
 
-            Column(Modifier.weight(1f)) {
-                Text(
-                    match.competition.ifBlank { match.sport },
-                    color = PrimaryText,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
-                )
+            Spacer(Modifier.width(8.dp))
 
-                Text(
-                    match.sport,
-                    color = SecondaryText,
-                    fontSize = 10.sp
-                )
-            }
-
-            if (match.isLive) {
-                Text(
-                    "LIVE",
-                    color = LiveGreen,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            Text(
+                "MATCH CENTRE",
+                color = PrimaryText,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
 
         MatchCentreScoreHeader(match)
 
-        LazyRow(
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .background(SurfaceColor),
-            contentPadding = PaddingValues(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(18.dp)
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(13.dp)
         ) {
-            items(tabs) { tab ->
-                Column(
-                    modifier = Modifier
-                        .clickable { selectedTab = tab }
-                        .padding(vertical = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        tab,
-                        color = if (selectedTab == tab) PrimaryText else SecondaryText,
-                        fontSize = 12.sp,
-                        fontWeight = if (selectedTab == tab) {
-                            FontWeight.Bold
-                        } else {
-                            FontWeight.Normal
-                        }
-                    )
 
-                    Spacer(Modifier.height(5.dp))
+            MatchInfoTab(match)
 
-                    Box(
-                        modifier = Modifier
-                            .width(25.dp)
-                            .height(2.dp)
-                            .background(
-                                if (selectedTab == tab) AccentBlue else Color.Transparent,
-                                RoundedCornerShape(5.dp)
-                            )
-                    )
-                }
-            }
-        }
+            Spacer(Modifier.height(13.dp))
 
-        when (selectedTab) {
-            "Info" -> MatchInfoTab(match)
-            "Overview" -> MatchOverviewTab(match)
-            "Scorecard" -> MatchUnavailableTab(
-                "Detailed scorecard",
-                "Scorecard data is not available from the current API response."
+            MatchOverviewTab(match)
+
+            Spacer(Modifier.height(13.dp))
+
+            MatchUnavailableTab(
+                "Scorecard",
+                "Detailed scorecard will appear when supported data is available."
             )
-            "Squad" -> MatchUnavailableTab(
-                "Squad information",
-                "Squad data is not available from the current API response."
+
+            Spacer(Modifier.height(13.dp))
+
+            MatchUnavailableTab(
+                "Squad",
+                "Squad information is not available yet."
             )
-            "Lineups" -> MatchUnavailableTab(
-                "Team lineups",
-                "Lineup data is not available from the current API response."
+
+            Spacer(Modifier.height(13.dp))
+
+            MatchUnavailableTab(
+                "Stats",
+                "Verified match statistics are not available yet."
             )
-            "Stats" -> MatchUnavailableTab(
-                "Match statistics",
-                "Detailed statistics are not available from the current API response."
-            )
-            "H2H" -> MatchUnavailableTab(
+
+            Spacer(Modifier.height(13.dp))
+
+            MatchUnavailableTab(
                 "Head to Head",
-                "Head-to-head data is not available from the current API response."
+                "Head-to-head data is not available yet."
             )
-            "Highlights" -> MatchUnavailableTab(
-                "Match highlights",
-                "No verified highlights link is available yet."
+
+            Spacer(Modifier.height(13.dp))
+
+            MatchUnavailableTab(
+                "Highlights",
+                "Highlights are not available yet."
             )
         }
     }
 }
 
 @Composable
-private fun MatchCentreScoreHeader(match: MatchItem) {
-    Column(
+private fun MatchCentreScoreHeader(
+    match: MatchItem
+) {
+
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .background(CardColor)
-            .padding(17.dp)
+            .padding(horizontal = 12.dp),
+        color = CardColor,
+        shape = RoundedCornerShape(14.dp)
     ) {
-        Text(
-            match.status.ifBlank {
-                if (match.isFinished) "Match finished"
-                else if (match.isLive) "Live match"
-                else match.date
-            },
-            color = if (match.isLive) LiveGreen else SecondaryText,
-            fontSize = 11.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
 
-        Spacer(Modifier.height(17.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                TeamLogoView(match.homeLogo, match.home)
-
-                Spacer(Modifier.height(8.dp))
-
-                Text(
-                    match.home,
-                    color = PrimaryText,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(Modifier.height(5.dp))
-
-                Text(
-                    match.homeScore.ifBlank { "-" },
-                    color = PrimaryText,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
 
             Text(
-                "VS",
+                match.competition.ifBlank { match.sport },
                 color = SecondaryText,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 12.dp)
+                fontSize = 11.sp
             )
 
-            Column(
-                modifier = Modifier.weight(1f),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Spacer(Modifier.height(15.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                TeamLogoView(match.awayLogo, match.away)
 
-                Spacer(Modifier.height(8.dp))
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
 
-                Text(
-                    match.away,
-                    color = PrimaryText,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(Modifier.height(5.dp))
-
-                Text(
-                    match.awayScore.ifBlank { "-" },
-                    color = PrimaryText,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-    }
-}
-// MATCH INFO
-
-@Composable
-private fun MatchInfoTab(match: MatchItem) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        item { MatchSectionTitle("Match Information") }
-        item { MatchInfoRow("Sport", match.sport) }
-        item { MatchInfoRow("Competition", match.competition) }
-        item { MatchInfoRow("Match Date", match.date) }
-        item { MatchInfoRow("Match Time", match.time) }
-        item { MatchInfoRow("Venue", match.venue) }
-        item { MatchInfoRow("Match Status", match.status) }
-        item { MatchInfoRow("Home Team", match.home) }
-        item { MatchInfoRow("Away Team", match.away) }
-    }
-}
-
-// MATCH OVERVIEW
-
-@Composable
-private fun MatchOverviewTab(match: MatchItem) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item { MatchSectionTitle("Match Overview") }
-
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = CardColor),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Column(Modifier.padding(14.dp)) {
-                    Text(
-                        "Match Summary",
-                        color = PrimaryText,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Spacer(Modifier.height(10.dp))
-
-                    Text(
-                        "${match.home} vs ${match.away}",
-                        color = PrimaryText,
-                        fontSize = 13.sp
-                    )
+                    TeamLogoView(match.homeLogo, match.home)
 
                     Spacer(Modifier.height(7.dp))
 
                     Text(
-                        "Competition: ${match.competition.ifBlank { "Not available" }}",
-                        color = SecondaryText,
-                        fontSize = 11.sp
+                        match.home,
+                        color = PrimaryText,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
                     )
 
-                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        match.homeScore.ifBlank { "—" },
+                        color = PrimaryText,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Text(
+                    "VS",
+                    color = SecondaryText,
+                    fontSize = 12.sp
+                )
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+
+                    TeamLogoView(match.awayLogo, match.away)
+
+                    Spacer(Modifier.height(7.dp))
 
                     Text(
-                        "Venue: ${match.venue.ifBlank { "Not available" }}",
-                        color = SecondaryText,
-                        fontSize = 11.sp
+                        match.away,
+                        color = PrimaryText,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Text(
+                        match.awayScore.ifBlank { "—" },
+                        color = PrimaryText,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
-        }
 
-        item { MatchSectionTitle("Commentary") }
+            Spacer(Modifier.height(13.dp))
 
-        item {
-            MatchUnavailableContent(
-                "Commentary is not available yet.",
-                "Live commentary will appear here when the API provides verified commentary data."
+            Text(
+                match.status.ifBlank { match.time },
+                color = if (match.isLive) LiveGreen else SecondaryText,
+                fontSize = 12.sp
             )
         }
+    }
+}
+@Composable
+private fun MatchInfoTab(match: MatchItem) {
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(CardColor, RoundedCornerShape(12.dp))
+            .padding(14.dp)
+    ) {
+
+        MatchSectionTitle("Match Information")
+
+        MatchInfoRow("Sport", match.sport)
+        MatchInfoRow("Competition", match.competition)
+        MatchInfoRow("Date", match.date)
+        MatchInfoRow("Time", match.time)
+        MatchInfoRow("Venue", match.venue)
+        MatchInfoRow("Status", match.status)
+    }
+}
+
+@Composable
+private fun MatchOverviewTab(match: MatchItem) {
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(CardColor, RoundedCornerShape(12.dp))
+            .padding(14.dp)
+    ) {
+
+        MatchSectionTitle("Overview")
+
+        Text(
+            "${match.home} vs ${match.away}",
+            color = PrimaryText,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        Text(
+            "Match information is shown above. Verified commentary and additional match data will appear when supported by the API.",
+            color = SecondaryText,
+            fontSize = 12.sp
+        )
     }
 }
 
 @Composable
 private fun MatchSectionTitle(title: String) {
+
     Text(
         title,
         color = PrimaryText,
         fontSize = 15.sp,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(vertical = 4.dp)
+        fontWeight = FontWeight.Bold
     )
+
+    Spacer(Modifier.height(10.dp))
 }
 
 @Composable
-private fun MatchInfoRow(title: String, value: String) {
-    if (value.isNotBlank()) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = CardColor),
-            shape = RoundedCornerShape(8.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(13.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    title,
-                    color = SecondaryText,
-                    fontSize = 12.sp,
-                    modifier = Modifier.weight(1f)
-                )
+private fun MatchInfoRow(
+    label: String,
+    value: String
+) {
 
-                Text(
-                    value,
-                    color = PrimaryText,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.End,
-                    modifier = Modifier.weight(1f)
-                )
-            }
+    if (value.isNotBlank()) {
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+
+            Text(
+                label,
+                color = SecondaryText,
+                fontSize = 12.sp,
+                modifier = Modifier.weight(1f)
+            )
+
+            Text(
+                value,
+                color = PrimaryText,
+                fontSize = 12.sp,
+                modifier = Modifier.weight(1.4f),
+                textAlign = TextAlign.End
+            )
         }
     }
 }
@@ -1761,233 +1681,93 @@ private fun MatchInfoRow(title: String, value: String) {
 @Composable
 private fun MatchUnavailableTab(
     title: String,
-    description: String
+    message: String
 ) {
+
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .padding(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .fillMaxWidth()
+            .background(CardColor, RoundedCornerShape(12.dp))
+            .padding(14.dp)
     ) {
+
+        MatchSectionTitle(title)
+
         Text(
-            title,
-            color = PrimaryText,
-            fontSize = 17.sp,
-            fontWeight = FontWeight.Bold
+            message,
+            color = SecondaryText,
+            fontSize = 12.sp
         )
-
-        Spacer(Modifier.height(9.dp))
-
-        MatchUnavailableContent("Data not available", description)
     }
 }
 
 @Composable
 private fun MatchUnavailableContent(
     title: String,
-    description: String
+    message: String
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = CardColor),
-        shape = RoundedCornerShape(10.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(17.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(
-                Icons.Default.Info,
-                contentDescription = null,
-                tint = AccentBlue,
-                modifier = Modifier.size(27.dp)
-            )
-
-            Spacer(Modifier.height(9.dp))
-
-            Text(
-                title,
-                color = PrimaryText,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(Modifier.height(6.dp))
-
-            Text(
-                description,
-                color = SecondaryText,
-                fontSize = 11.sp,
-                textAlign = TextAlign.Center
-            )
-        }
-    }
+    MatchUnavailableTab(title, message)
 }
-
-// NEWS
 
 @Composable
 private fun NewsScreen() {
+    FeaturePlaceholder(
+        title = "Sports News",
+        message = "Verified sports news will appear here."
+    )
+}
+
+@Composable
+private fun QuizScreen(sport: String) {
+    FeaturePlaceholder(
+        title = "$sport Quiz",
+        message = "Free quizzes and points are coming soon. No cash rewards or paid entry."
+    )
+}
+
+@Composable
+private fun StatsScreen(sport: String) {
+    FeaturePlaceholder(
+        title = "$sport Stats",
+        message = "Verified player and team statistics will appear here when data is available."
+    )
+}
+
+@Composable
+private fun MoreScreen(
+    onOpenRankings: () -> Unit
+) {
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(AppBackground)
-            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(15.dp)
     ) {
+
         Text(
-            "Sports News",
+            "More",
             color = PrimaryText,
-            fontSize = 20.sp,
+            fontSize = 22.sp,
             fontWeight = FontWeight.Bold
         )
 
         Spacer(Modifier.height(15.dp))
 
-        FeaturePlaceholder(
-            "News Coming Soon",
-            "Verified sports news and updates will appear here when a news source is connected."
+        MoreMenuItem(
+            title = "Football Rankings",
+            subtitle = "League tables and player rankings",
+            onClick = onOpenRankings
         )
-    }
-}
-
-// QUIZ
-
-@Composable
-private fun QuizScreen(selectedSport: String) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(AppBackground)
-            .padding(16.dp)
-    ) {
-        Text(
-            "Sports Quiz",
-            color = PrimaryText,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold
-        )
-
-        Spacer(Modifier.height(8.dp))
-
-        Text(
-            selectedSport,
-            color = AccentBlue,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        Spacer(Modifier.height(18.dp))
-
-        FeaturePlaceholder(
-            "Quiz Coming Soon",
-            "Match-based questions and sports trivia will appear here when verified quiz data is available."
-        )
-
-        Spacer(Modifier.height(14.dp))
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = CardColor),
-            shape = RoundedCornerShape(10.dp)
-        ) {
-            Column(Modifier.padding(15.dp)) {
-                Text(
-                    "Points System",
-                    color = PrimaryText,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Spacer(Modifier.height(7.dp))
-
-                Text(
-                    "Quiz participation will use free, non-cash points only. No deposits, staking or cash rewards.",
-                    color = SecondaryText,
-                    fontSize = 12.sp
-                )
-            }
-        }
-    }
-}
-
-// STATS
-
-@Composable
-private fun StatsScreen(selectedSport: String) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(AppBackground)
-            .padding(16.dp)
-    ) {
-        Text(
-            "Sports Statistics",
-            color = PrimaryText,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold
-        )
-
-        Spacer(Modifier.height(8.dp))
-
-        Text(
-            selectedSport,
-            color = AccentBlue,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        Spacer(Modifier.height(18.dp))
-
-        FeaturePlaceholder(
-            "Statistics Coming Soon",
-            "Player statistics, team performance and detailed records will appear here when verified data is available."
-        )
-    }
-}
-
-// MORE
-
-@Composable
-private fun MoreScreen(onOpenRankings: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(AppBackground)
-            .padding(16.dp)
-    ) {
-        Text(
-            "More",
-            color = PrimaryText,
-            fontSize = 21.sp,
-            fontWeight = FontWeight.Bold
-        )
-
-        Spacer(Modifier.height(18.dp))
 
         MoreMenuItem(
-            "Football Rankings",
-            "League tables and player rankings",
-            onOpenRankings
+            title = "About SportexX",
+            subtitle = "Sports, news and statistics"
         )
 
-        Spacer(Modifier.height(10.dp))
-
         MoreMenuItem(
-            "About SportexX",
-            "Sports • News • Stats",
-            {}
-        )
-
-        Spacer(Modifier.height(10.dp))
-
-        MoreMenuItem(
-            "App Version",
-            "Version 1.0",
-            {}
+            title = "Coming Soon",
+            subtitle = "More features are under development"
         )
     }
 }
@@ -1996,27 +1776,32 @@ private fun MoreScreen(onOpenRankings: () -> Unit) {
 private fun MoreMenuItem(
     title: String,
     subtitle: String,
-    onClick: () -> Unit
+    onClick: () -> Unit = {}
 ) {
-    Card(
+
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(bottom = 10.dp)
             .clickable { onClick() },
-        colors = CardDefaults.cardColors(containerColor = CardColor),
-        shape = RoundedCornerShape(10.dp)
+        color = CardColor,
+        shape = RoundedCornerShape(12.dp)
     ) {
+
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(15.dp),
+            modifier = Modifier.padding(15.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(Modifier.weight(1f)) {
+
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+
                 Text(
                     title,
                     color = PrimaryText,
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.Bold
                 )
 
                 Spacer(Modifier.height(4.dp))
@@ -2028,103 +1813,66 @@ private fun MoreMenuItem(
                 )
             }
 
-            Icon(
-                Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = SecondaryText
+            Text(
+                "›",
+                color = AccentBlue,
+                fontSize = 23.sp
             )
         }
     }
 }
 
-// RANKINGS
-
 @Composable
-private fun RankingsScreen(onBack: () -> Unit) {
+private fun RankingsScreen(
+    onBack: () -> Unit
+) {
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(AppBackground)
+            .padding(15.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(SurfaceColor)
-                .padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.Default.ArrowBack,
-                    contentDescription = "Back",
-                    tint = PrimaryText
-                )
-            }
 
-            Text(
-                "Football Rankings",
-                color = PrimaryText,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
-            )
+        TextButton(onClick = onBack) {
+            Text("‹ Back", color = AccentBlue)
         }
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-        ) {
-            FeaturePlaceholder(
-                "Rankings Coming Soon",
-                "League-wise team standings, top scorers, assists, appearances, goalkeeper rankings and clean sheets will appear when supported by the API."
-            )
-        }
+        FeaturePlaceholder(
+            title = "Football Rankings",
+            message = "League-wise team standings and separate player rankings will appear here when verified data is supported."
+        )
     }
 }
-
-// COMMON PLACEHOLDER
 
 @Composable
 private fun FeaturePlaceholder(
     title: String,
-    description: String
+    message: String
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = CardColor),
-        shape = RoundedCornerShape(12.dp)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(22.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(
-                Icons.Default.SportsScore,
-                contentDescription = null,
-                tint = AccentBlue,
-                modifier = Modifier.size(38.dp)
-            )
 
-            Spacer(Modifier.height(13.dp))
+        Text(
+            title,
+            color = PrimaryText,
+            fontSize = 21.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
 
-            Text(
-                title,
-                color = PrimaryText,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
+        Spacer(Modifier.height(10.dp))
 
-            Spacer(Modifier.height(8.dp))
-
-            Text(
-                description,
-                color = SecondaryText,
-                fontSize = 12.sp,
-                textAlign = TextAlign.Center
-            )
-        }
+        Text(
+            message,
+            color = SecondaryText,
+            fontSize = 13.sp,
+            textAlign = TextAlign.Center
+        )
     }
 }
