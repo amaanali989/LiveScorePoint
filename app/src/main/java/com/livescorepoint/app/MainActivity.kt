@@ -154,108 +154,19 @@ private data class EventItem(
     val status: String = ""
 )
 
-private fun JSONObject.readString(vararg keys: String): String {
-    for (key in keys) {
-        val value = optString(key, "")
-        if (value.isNotBlank() && value != "null") {
-            return value
-        }
-    }
-    return ""
-}
-
-private fun JSONObject.readInt(vararg keys: String): Int {
-    for (key in keys) {
-        if (has(key)) {
-            val value = optString(key, "")
-            value.toIntOrNull()?.let { return it }
-        }
-    }
-    return 0
-}
-
-private fun JSONObject.readArray(vararg keys: String): JSONArray {
-    for (key in keys) {
-        val array = optJSONArray(key)
-        if (array != null) return array
-    }
-    return JSONArray()
-}
-
-private fun JSONArray.stringAt(index: Int): String {
-    return if (index in 0 until length()) {
-        optString(index, "")
-    } else {
-        ""
-    }
-}
-
-private fun JSONObject.readScore(): String {
-    val runs = optString("r", "")
-    val wickets = optString("w", "")
-    val overs = optString("o", "")
-
-    if (runs.isBlank()) return ""
-
-    val wicketPart =
-        if (wickets.isNotBlank()) "/$wickets" else ""
-
-    val overPart =
-        if (overs.isNotBlank()) " ($overs ov)" else ""
-
-    return "$runs$wicketPart$overPart"
-}
-
-private fun isMatchFinished(status: String): Boolean {
-    val value = status.lowercase()
-
-    return value.contains("won by") ||
-        value.contains("drawn") ||
-        value.contains("tied") ||
-        value.contains("abandoned") ||
-        value.contains("no result") ||
-        value.contains("finished") ||
-        value.contains("full time") ||
-        value == "ft"
-}
-
-private fun isMatchStumps(status: String): Boolean {
-    return status.lowercase().contains("stumps")
-}
-
-private fun isMatchLive(status: String): Boolean {
-    val value = status.lowercase()
-
-    if (isMatchFinished(value) || isMatchStumps(value)) {
-        return false
-    }
-
-    return value.contains("live") ||
-        value.contains("in progress") ||
-        value.contains("innings") ||
-        value.contains("1st half") ||
-        value.contains("2nd half") ||
-        value.contains("half time") ||
-        value.contains("break")
-}
-
-private fun isMatchUpcoming(status: String): Boolean {
-    val value = status.lowercase()
-
-    return value.contains("upcoming") ||
-        value.contains("scheduled") ||
-        value.contains("not started") ||
-        value.contains("yet to begin") ||
-        value.contains("starts")
-}
-
-private suspend fun fetchApi(path: String): JSONObject? {
+private suspend fun apiGet(path: String): JSONObject? {
     return withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
 
         try {
-            val url = URL("$API_BASE$path")
-            connection = url.openConnection() as HttpURLConnection
+            val fullUrl = if (path.startsWith("http")) {
+                path
+            } else {
+                API_BASE.trimEnd('/') + "/" + path.trimStart('/')
+            }
+
+            connection = URL(fullUrl)
+                .openConnection() as HttpURLConnection
 
             connection.requestMethod = "GET"
             connection.connectTimeout = 15000
@@ -267,14 +178,20 @@ private suspend fun fetchApi(path: String): JSONObject? {
 
             val responseCode = connection.responseCode
 
-            if (responseCode in 200..299) {
-                val response = connection.inputStream
-                    .bufferedReader()
-                    .use { it.readText() }
-
-                JSONObject(response)
+            val stream = if (responseCode in 200..299) {
+                connection.inputStream
             } else {
+                connection.errorStream
+            }
+
+            val response = stream?.bufferedReader()?.use {
+                it.readText()
+            } ?: return@withContext null
+
+            if (response.isBlank()) {
                 null
+            } else {
+                JSONObject(response)
             }
         } catch (e: Exception) {
             null
@@ -284,435 +201,537 @@ private suspend fun fetchApi(path: String): JSONObject? {
     }
 }
 
-private fun JSONObject.extractMatches(): JSONArray {
-    val possibleKeys = listOf(
-        "data",
-        "matches",
-        "results",
-        "response",
-        "items"
-    )
-
-    for (key in possibleKeys) {
-        val value = opt(key)
-
-        if (value is JSONArray) {
-            return value
-        }
-
-        if (value is JSONObject) {
-            val nested = value.extractMatches()
-            if (nested.length() > 0) return nested
-        }
-    }
-
-    return JSONArray()
-}
-
-private fun JSONObject.extractText(
+private fun JSONObject.firstString(
     vararg keys: String
 ): String {
-    return readString(*keys)
+    for (key in keys) {
+        val value = opt(key)
+
+        if (value != null && value != JSONObject.NULL) {
+            val result = value.toString().trim()
+
+            if (result.isNotEmpty() &&
+                result != "null" &&
+                result != "undefined"
+            ) {
+                return result
+            }
+        }
+    }
+
+    return ""
 }
 
-private fun JSONArray.toMatchList(
-    sport: String
-): List<MatchItem> {
-    val result = mutableListOf<MatchItem>()
+private fun JSONObject.firstObject(
+    vararg keys: String
+): JSONObject? {
+    for (key in keys) {
+        val value = optJSONObject(key)
+
+        if (value != null) return value
+    }
+
+    return null
+}
+
+private fun JSONObject.firstArray(
+    vararg keys: String
+): JSONArray? {
+    for (key in keys) {
+        val value = optJSONArray(key)
+
+        if (value != null) return value
+    }
+
+    return null
+}
+
+private fun JSONObject.firstInt(
+    vararg keys: String
+): Int {
+    for (key in keys) {
+        val value = opt(key)
+
+        val number = when (value) {
+            is Number -> value.toInt()
+            is String -> value.toIntOrNull()
+            else -> null
+        }
+
+        if (number != null) return number
+    }
+
+    return 0
+}
+
+private fun JSONObject.firstBoolean(
+    vararg keys: String
+): Boolean {
+    for (key in keys) {
+        val value = opt(key)
+
+        when (value) {
+            is Boolean -> return value
+            is String -> {
+                if (value.equals("true", true)) return true
+                if (value.equals("false", true)) return false
+            }
+        }
+    }
+
+    return false
+}
+
+private fun JSONObject.unwrapData(): JSONObject {
+    return firstObject(
+        "data",
+        "response",
+        "result"
+    ) ?: this
+}
+
+private fun JSONArray.toObjectList(): List<JSONObject> {
+    val result = mutableListOf<JSONObject>()
 
     for (index in 0 until length()) {
-        val item = optJSONObject(index) ?: continue
+        val item = optJSONObject(index)
 
-        val status = item.readString(
-            "status",
-            "matchStatus",
-            "state",
-            "statusText"
-        )
-
-        val home = item.readString(
-            "home",
-            "homeTeam",
-            "team1",
-            "teamA",
-            "localteam"
-        )
-
-        val away = item.readString(
-            "away",
-            "awayTeam",
-            "team2",
-            "teamB",
-            "visitorteam"
-        )
-
-        val homeObject = item.optJSONObject("homeTeam")
-            ?: item.optJSONObject("team1")
-
-        val awayObject = item.optJSONObject("awayTeam")
-            ?: item.optJSONObject("team2")
-
-        val homeName = if (home.isNotBlank()) {
-            home
-        } else {
-            homeObject?.readString("name", "title") ?: ""
+        if (item != null) {
+            result.add(item)
         }
-
-        val awayName = if (away.isNotBlank()) {
-            away
-        } else {
-            awayObject?.readString("name", "title") ?: ""
-        }
-
-        if (homeName.isBlank() && awayName.isBlank()) {
-            continue
-        }
-
-        result.add(
-            MatchItem(
-                id = item.readString(
-                    "id",
-                    "matchId",
-                    "fixtureId"
-                ),
-                sport = sport,
-                home = homeName,
-                away = awayName,
-                homeLogo = item.readString(
-                    "homeLogo",
-                    "team1Logo"
-                ),
-                awayLogo = item.readString(
-                    "awayLogo",
-                    "team2Logo"
-                ),
-                homeScore = item.readString(
-                    "homeScore",
-                    "team1Score",
-                    "score1"
-                ),
-                awayScore = item.readString(
-                    "awayScore",
-                    "team2Score",
-                    "score2"
-                ),
-                status = status,
-                date = item.readString(
-                    "date",
-                    "matchDate"
-                ),
-                time = item.readString(
-                    "time",
-                    "matchTime"
-                ),
-                competition = item.readString(
-                    "competition",
-                    "series",
-                    "tournament",
-                    "league"
-                ),
-                venue = item.readString(
-                    "venue",
-                    "ground",
-                    "stadium"
-                ),
-                category = item.readString(
-                    "category",
-                    "matchType",
-                    "format"
-                ),
-                result = item.readString(
-                    "result",
-                    "resultText"
-                ),
-                isLive = isMatchLive(status),
-                isFinished = isMatchFinished(status),
-                isUpcoming = isMatchUpcoming(status)
-            )
-        )
     }
 
     return result
 }
 
-private fun JSONObject.extractNews(): List<NewsItem> {
-    val array = extractMatches()
-    val result = mutableListOf<NewsItem>()
-
-    for (index in 0 until array.length()) {
-        val item = array.optJSONObject(index) ?: continue
-
-        result.add(
-            NewsItem(
-                title = item.readString(
-                    "title",
-                    "headline",
-                    "name"
-                ),
-                description = item.readString(
-                    "description",
-                    "summary",
-                    "content"
-                ),
-                image = item.readString(
-                    "image",
-                    "imageUrl",
-                    "thumbnail"
-                ),
-                source = item.readString(
-                    "source",
-                    "publisher"
-                ),
-                publishedAt = item.readString(
-                    "publishedAt",
-                    "date",
-                    "time"
-                ),
-                url = item.readString(
-                    "url",
-                    "link"
-                )
-            )
-        )
-    }
-
-    return result.filter { it.title.isNotBlank() }
-}
-
-private fun JSONObject.extractEvents(): List<EventItem> {
-    val array = extractMatches()
-    val result = mutableListOf<EventItem>()
-
-    for (index in 0 until array.length()) {
-        val item = array.optJSONObject(index) ?: continue
-
-        result.add(
-            EventItem(
-                name = item.readString(
-                    "name",
-                    "title",
-                    "event"
-                ),
-                sport = item.readString(
-                    "sport",
-                    "category"
-                ),
-                location = item.readString(
-                    "location",
-                    "venue",
-                    "host"
-                ),
-                startDate = item.readString(
-                    "startDate",
-                    "start",
-                    "date"
-                ),
-                endDate = item.readString(
-                    "endDate",
-                    "end"
-                ),
-                status = item.readString(
-                    "status",
-                    "state"
-                )
-            )
-        )
-    }
-
-    return result.filter { it.name.isNotBlank() }
-}
-
-private fun JSONObject.extractGoalEvents(): List<GoalEvent> {
-    val possibleKeys = listOf(
-        "events",
-        "goals",
-        "incidents",
-        "timeline"
+private fun parseMatch(
+    json: JSONObject,
+    sport: String
+): MatchItem {
+    val homeObject = json.firstObject(
+        "team1",
+        "homeTeam",
+        "home",
+        "team_home"
     )
 
-    var eventArray = JSONArray()
+    val awayObject = json.firstObject(
+        "team2",
+        "awayTeam",
+        "away",
+        "team_away"
+    )
 
-    for (key in possibleKeys) {
-        val array = optJSONArray(key)
-        if (array != null) {
-            eventArray = array
-            break
-        }
-    }
+    val homeName = homeObject?.firstString(
+        "name",
+        "teamName",
+        "title",
+        "shortName"
+    ) ?: ""
 
-    val result = mutableListOf<GoalEvent>()
+    val awayName = awayObject?.firstString(
+        "name",
+        "teamName",
+        "title",
+        "shortName"
+    ) ?: ""
 
-    for (index in 0 until eventArray.length()) {
-        val event = eventArray.optJSONObject(index) ?: continue
-
-        val type = event.readString(
-            "type",
-            "eventType",
-            "detail",
-            "incident"
-        )
-
-        val normalizedType = type.lowercase()
-
-        val isGoal = normalizedType.contains("goal") ||
-            normalizedType.contains("penalty") ||
-            normalizedType.contains("own goal")
-
-        if (!isGoal) continue
-
-        result.add(
-            GoalEvent(
-                minute = event.readString(
-                    "minute",
-                    "time",
-                    "elapsed",
-                    "displayTime"
-                ),
-                scorer = event.readString(
-                    "player",
-                    "scorer",
-                    "playerName",
-                    "name"
-                ),
-                assist = event.readString(
-                    "assist",
-                    "assistPlayer",
-                    "assistName"
-                ),
-                type = type.ifBlank { "Goal" }
-            )
+    val home = if (homeName.isNotBlank()) {
+        homeName
+    } else {
+        json.firstString(
+            "team1Name",
+            "homeTeamName",
+            "home_name"
         )
     }
 
-    return result
-}
+    val away = if (awayName.isNotBlank()) {
+        awayName
+    } else {
+        json.firstString(
+            "team2Name",
+            "awayTeamName",
+            "away_name"
+        )
+    }
 
-private fun JSONObject.extractFootballMatch(): MatchItem {
-    val homeObject = optJSONObject("homeTeam")
-        ?: optJSONObject("team1")
-        ?: JSONObject()
+    val homeScore = json.firstString(
+        "team1Score",
+        "homeScore",
+        "home_score",
+        "score1"
+    ).ifBlank {
+        homeObject?.firstString("score", "runs") ?: ""
+    }
 
-    val awayObject = optJSONObject("awayTeam")
-        ?: optJSONObject("team2")
-        ?: JSONObject()
+    val awayScore = json.firstString(
+        "team2Score",
+        "awayScore",
+        "away_score",
+        "score2"
+    ).ifBlank {
+        awayObject?.firstString("score", "runs") ?: ""
+    }
 
-    val status = readString(
+    val status = json.firstString(
         "status",
         "matchStatus",
-        "state"
+        "state",
+        "statusText"
     )
 
+    val statusLower = status.lowercase()
+
+    val finished = statusLower.contains("finished") ||
+        statusLower.contains("completed") ||
+        statusLower.contains("result") ||
+        statusLower.contains("ended")
+
+    val upcoming = statusLower.contains("upcoming") ||
+        statusLower.contains("scheduled") ||
+        statusLower.contains("not started") ||
+        statusLower.contains("fixture")
+
+    val live = !finished && !upcoming &&
+        (
+            statusLower.contains("live") ||
+            statusLower.contains("in progress") ||
+            statusLower.contains("innings") ||
+            statusLower.contains("playing")
+        )
+
+    val goals = parseGoalEvents(json)
+
     return MatchItem(
-        id = readString(
+        id = json.firstString(
             "id",
             "matchId",
-            "fixtureId"
+            "match_id",
+            "fixtureId",
+            "key"
         ),
-        sport = "Football",
-        home = readString(
-            "home",
-            "homeName"
-        ).ifBlank {
-            homeObject.readString("name", "title")
-        },
-        away = readString(
-            "away",
-            "awayName"
-        ).ifBlank {
-            awayObject.readString("name", "title")
-        },
-        homeLogo = readString(
-            "homeLogo"
-        ).ifBlank {
-            homeObject.readString("logo", "image")
-        },
-        awayLogo = readString(
-            "awayLogo"
-        ).ifBlank {
-            awayObject.readString("logo", "image")
-        },
-        homeScore = readString(
-            "homeScore",
-            "score1"
-        ),
-        awayScore = readString(
-            "awayScore",
-            "score2"
-        ),
+        sport = sport,
+        home = home,
+        away = away,
+        homeLogo = homeObject?.firstString(
+            "logo",
+            "image",
+            "teamLogo",
+            "crest"
+        ) ?: json.firstString("team1Logo", "homeLogo"),
+        awayLogo = awayObject?.firstString(
+            "logo",
+            "image",
+            "teamLogo",
+            "crest"
+        ) ?: json.firstString("team2Logo", "awayLogo"),
+        homeScore = homeScore,
+        awayScore = awayScore,
         status = status,
-        date = readString("date", "matchDate"),
-        time = readString("time", "matchTime"),
-        competition = readString(
+        date = json.firstString(
+            "date",
+            "matchDate",
+            "startDate",
+            "utcDate"
+        ),
+        time = json.firstString(
+            "time",
+            "matchTime",
+            "startTime"
+        ),
+        competition = json.firstString(
             "competition",
+            "series",
             "league",
-            "tournament"
+            "tournament",
+            "seriesName"
         ),
-        venue = readString(
+        competitionLogo = json.firstString(
+            "competitionLogo",
+            "leagueLogo",
+            "seriesLogo"
+        ),
+        venue = json.firstString(
             "venue",
-            "stadium",
-            "ground"
+            "ground",
+            "stadium"
         ),
-        result = readString("result", "resultText"),
-        isLive = isMatchLive(status),
-        isFinished = isMatchFinished(status),
-        isUpcoming = isMatchUpcoming(status),
-        goalEvents = extractGoalEvents()
+        category = json.firstString(
+            "category",
+            "format",
+            "matchType"
+        ),
+        result = json.firstString(
+            "result",
+            "resultText",
+            "resultInfo"
+        ),
+        matchUrl = json.firstString(
+            "url",
+            "matchUrl",
+            "match_url"
+        ),
+        isLive = live,
+        isFinished = finished,
+        isUpcoming = upcoming,
+        goalEvents = goals
     )
 }
 
-private fun formatGoalEvent(event: GoalEvent): String {
-    val minute = event.minute
-        .takeIf { it.isNotBlank() }
-        ?.let { "$it'" }
-        ?: ""
+private fun parseMatches(
+    response: JSONObject,
+    sport: String
+): List<MatchItem> {
+    val root = response.unwrapData()
 
-    val scorer = event.scorer.ifBlank {
-        "Unknown scorer"
+    val array = root.firstArray(
+        "matches",
+        "items",
+        "fixtures",
+        "events",
+        "data"
+    ) ?: response.firstArray(
+        "matches",
+        "items",
+        "fixtures",
+        "events"
+    ) ?: return emptyList()
+
+    return array.toObjectList()
+        .map { parseMatch(it, sport) }
+        .filter {
+            it.home.isNotBlank() &&
+            it.away.isNotBlank()
+        }
+        .distinctBy {
+            it.id.ifBlank {
+                it.home + "_" + it.away + "_" + it.date
+            }
+        }
+}
+
+private fun parseGoalEvents(
+    json: JSONObject
+): List<GoalEvent> {
+    val events = json.firstArray(
+        "goals",
+        "goalEvents",
+        "events",
+        "incidents",
+        "scorers"
+    ) ?: return emptyList()
+
+    return events.toObjectList()
+        .mapNotNull { event ->
+            val type = event.firstString(
+                "type",
+                "eventType",
+                "detail"
+            ).ifBlank { "Goal" }
+
+            val typeLower = type.lowercase()
+
+            if (
+                !typeLower.contains("goal") &&
+                !typeLower.contains("penalty") &&
+                !typeLower.contains("own")
+            ) {
+                return@mapNotNull null
+            }
+
+            val player = event.firstObject(
+                "player",
+                "scorer",
+                "playerIn"
+            )
+
+            val assistObject = event.firstObject(
+                "assist",
+                "assistPlayer"
+            )
+
+            val scorer = player?.firstString(
+                "name",
+                "playerName",
+                "displayName"
+            ) ?: event.firstString(
+                "scorer",
+                "playerName",
+                "player",
+                "name"
+            )
+
+            val assist = assistObject?.firstString(
+                "name",
+                "playerName"
+            ) ?: event.firstString(
+                "assistName",
+                "assist",
+                "assistedBy"
+            )
+
+            val minute = event.firstString(
+                "minute",
+                "time",
+                "elapsed",
+                "matchTime"
+            )
+
+            if (scorer.isBlank() || minute.isBlank()) {
+                return@mapNotNull null
+            }
+
+            GoalEvent(
+                minute = minute,
+                scorer = scorer,
+                assist = assist,
+                type = type
+            )
+        }
+        .sortedBy {
+            it.minute.filter { char -> char.isDigit() }
+                .toIntOrNull() ?: 0
+        }
+        .distinctBy {
+            it.minute + "_" + it.scorer
+        }
+}
+
+private fun goalLabel(goal: GoalEvent): String {
+    val extra = when {
+        goal.type.contains("own", true) -> " (OG)"
+        goal.type.contains("penalty", true) -> " (P)"
+        else -> ""
     }
 
-    val assist = event.assist
-        .takeIf { it.isNotBlank() }
-        ?.let { " • Assist: $it" }
-        ?: ""
+    return "${goal.scorer}$extra ${goal.minute}'"
+}
 
-    val type = event.type
-        .takeIf { it.isNotBlank() }
-        ?: "Goal"
+private fun goalSummary(match: MatchItem): String {
+    if (match.goalEvents.isEmpty()) return ""
 
-    return "$minute  $scorer • $type$assist"
+    return match.goalEvents
+        .takeLast(3)
+        .joinToString("  •  ") {
+            goalLabel(it)
+        }
+}
+
+private suspend fun loadMatches(
+    sport: String,
+    filter: String
+): List<MatchItem> {
+    val response = when (sport.lowercase()) {
+
+        "cricket" -> {
+            val path = when (filter) {
+                "Recent" -> "/dbMatches"
+                else -> "/currentMatches"
+            }
+
+            apiGet(path)
+        }
+
+        "football" -> {
+            apiGet(
+                "/api/widget/matches/?sport=football&limit=100"
+            )
+        }
+
+        else -> null
+    } ?: return emptyList()
+
+    val allMatches = parseMatches(response, sport)
+
+    return when (filter) {
+        "Live" -> allMatches.filter { it.isLive }
+
+        "Upcoming" -> allMatches.filter {
+            it.isUpcoming
+        }
+
+        "Recent" -> allMatches.filter {
+            it.isFinished
+        }
+
+        else -> allMatches
+    }
+}
+
+private suspend fun loadMatchDetails(
+    sport: String,
+    match: MatchItem
+): JSONObject? {
+    return when (sport.lowercase()) {
+
+        "cricket" -> {
+            if (match.matchUrl.isNotBlank()) {
+                apiGet(
+                    "/dbScorecard?match=${match.matchUrl}"
+                )
+            } else if (match.id.isNotBlank()) {
+                apiGet(
+                    "/scorecard?id=${match.id}"
+                )
+            } else {
+                null
+            }
+        }
+
+        "football" -> {
+            null
+        }
+
+        else -> null
+    }
+}
+
+private fun sortMatches(
+    matches: List<MatchItem>,
+    filter: String
+): List<MatchItem> {
+    return when (filter) {
+        "Live" -> matches.sortedByDescending {
+            it.isLive
+        }
+
+        "Upcoming" -> matches.sortedBy {
+            it.date + it.time
+        }
+
+        "Recent" -> matches.sortedByDescending {
+            it.date + it.time
+        }
+
+        else -> matches
+    }
 }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        window.statusBarColor =
-            android.graphics.Color.rgb(16, 24, 39)
-
-        window.navigationBarColor =
-            android.graphics.Color.rgb(16, 24, 39)
-
         setContent {
-            SportexXApp()
+            MaterialTheme {
+                SportexXApp()
+            }
         }
     }
 }
 
 @Composable
 private fun SportexXApp() {
+
     var selectedSport by remember {
         mutableStateOf("Cricket")
-    }
-
-    var selectedNavigation by remember {
-        mutableStateOf("Home")
     }
 
     var selectedFilter by remember {
         mutableStateOf("Live")
     }
 
-    var selectedCricketCategory by remember {
+    var selectedCategory by remember {
         mutableStateOf("International")
     }
 
@@ -720,24 +739,12 @@ private fun SportexXApp() {
         mutableStateOf(AppSection.HOME)
     }
 
+    var matches by remember {
+        mutableStateOf<List<MatchItem>>(emptyList())
+    }
+
     var selectedMatch by remember {
         mutableStateOf<MatchItem?>(null)
-    }
-
-    var cricketMatches by remember {
-        mutableStateOf<List<MatchItem>>(emptyList())
-    }
-
-    var footballMatches by remember {
-        mutableStateOf<List<MatchItem>>(emptyList())
-    }
-
-    var newsItems by remember {
-        mutableStateOf<List<NewsItem>>(emptyList())
-    }
-
-    var eventItems by remember {
-        mutableStateOf<List<EventItem>>(emptyList())
     }
 
     var isLoading by remember {
@@ -748,375 +755,209 @@ private fun SportexXApp() {
         mutableStateOf("")
     }
 
-    var lastUpdated by remember {
-        mutableStateOf("")
-    }
-
-    var refreshCounter by remember {
-        mutableIntStateOf(0)
-    }
-
-    val currentMatches = if (selectedSport == "Football") {
-        footballMatches
-    } else {
-        cricketMatches
-    }
-
-    val filteredMatches = when (selectedFilter) {
-        "Live" -> currentMatches.filter { it.isLive }
-
-        "Upcoming" -> currentMatches.filter {
-            it.isUpcoming
-        }
-
-        "Recent" -> currentMatches.filter {
-            it.isFinished
-        }
-
-        else -> currentMatches
-    }
-
     LaunchedEffect(
         selectedSport,
-        selectedNavigation,
-        refreshCounter
+        selectedFilter,
+        selectedSection
     ) {
-        if (selectedSport == "Cricket" ||
-            selectedSport == "Football"
+        if (
+            selectedSection == AppSection.HOME ||
+            selectedSection == AppSection.LIVE
         ) {
-            isLoading = true
-            errorMessage = ""
+            if (
+                selectedSport == "Cricket" ||
+                selectedSport == "Football"
+            ) {
+                isLoading = true
+                errorMessage = ""
 
-            try {
-                if (selectedSport == "Cricket") {
-                    val response = fetchApi(
-                        "/api/currentMatches"
-                    )
+                val result = loadMatches(
+                    selectedSport,
+                    selectedFilter
+                )
 
-                    if (response != null) {
-                        cricketMatches =
-                            response.extractMatches()
-                                .toMatchList("Cricket")
-                    }
-                } else {
-                    val response = fetchApi(
-                        "/api/widget/matches/?sport=football&limit=10"
-                    )
+                matches = sortMatches(
+                    result,
+                    selectedFilter
+                )
 
-                    if (response != null) {
-                        footballMatches =
-                            response.extractMatches()
-                                .toMatchList("Football")
-                    }
-                }
-
-                lastUpdated = java.text.SimpleDateFormat(
-                    "hh:mm a",
-                    java.util.Locale.getDefault()
-                ).format(java.util.Date())
-
-                if (currentMatches.isEmpty()) {
+                if (matches.isEmpty()) {
                     errorMessage =
-                        "Match data is not available right now."
+                        "Abhi is category ka match data available nahi hai."
                 }
-            } catch (e: Exception) {
-                errorMessage =
-                    "Unable to load data. Please try again."
-            } finally {
+
+                isLoading = false
+            } else {
+                matches = emptyList()
+                errorMessage = "This feature is coming soon."
                 isLoading = false
             }
         }
     }
 
-    MaterialTheme {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = AppBackground
-        ) {
-            Column(
-                modifier = Modifier.fillMaxSize()
-            ) {
-                SportexXHeader(
-                    selectedSport = selectedSport,
-                    onSportChange = {
-                        selectedSport = it
-                        selectedFilter = "Live"
-                    }
-                )
-
-                when (selectedSection) {
-                    AppSection.MATCH_DETAILS -> {
-                        MatchDetailsScreen(
-                            match = selectedMatch,
-                            onBack = {
-                                selectedSection =
-                                    AppSection.HOME
-                            }
-                        )
-                    }
-
-                    else -> {
-                        SportexXMainContent(
-                            selectedNavigation =
-                                selectedNavigation,
-                            selectedSport = selectedSport,
-                            selectedFilter = selectedFilter,
-                            selectedCategory =
-                                selectedCricketCategory,
-                            matches = filteredMatches,
-                            allMatches = currentMatches,
-                            newsItems = newsItems,
-                            eventItems = eventItems,
-                            isLoading = isLoading,
-                            errorMessage = errorMessage,
-                            lastUpdated = lastUpdated,
-                            onFilterChange = {
-                                selectedFilter = it
-                            },
-                            onCategoryChange = {
-                                selectedCricketCategory = it
-                            },
-                            onMatchClick = {
-                                selectedMatch = it
-                                selectedSection =
-                                    AppSection.MATCH_DETAILS
-                            },
-                            onRefresh = {
-                                refreshCounter++
-                            }
-                        )
-                    }
-                }
-
-                SportexXBottomNavigation(
-                    selectedItem = selectedNavigation,
-                    onItemSelected = {
-                        selectedNavigation = it
-
-                        selectedSection = when (it) {
-                            "Home" -> AppSection.HOME
-                            "Live" -> AppSection.LIVE
-                            "News" -> AppSection.NEWS
-                            "Quiz" -> AppSection.QUIZ
-                            "Stats" -> AppSection.STATS
-                            else -> AppSection.MORE
-                        }
-                    }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SportexXHeader(
-    selectedSport: String,
-    onSportChange: (String) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(AppBackground)
-            .padding(
-                start = 16.dp,
-                end = 16.dp,
-                top = 12.dp,
-                bottom = 10.dp
-            )
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column {
-                Text(
-                    text = "SPORTEXX",
-                    color = PrimaryText,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 1.5.sp
-                )
-
-                Text(
-                    text = "SPORTS • NEWS • STATS",
-                    color = SecondaryText,
-                    fontSize = 9.sp,
-                    letterSpacing = 1.2.sp
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .background(
-                        SoftBlue,
-                        RoundedCornerShape(10.dp)
-                    )
-                    .padding(
-                        horizontal = 11.dp,
-                        vertical = 7.dp
-                    )
-            ) {
-                Text(
-                    text = "SPORTS HUB",
-                    color = PrimaryText,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(18.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(9.dp)
-        ) {
-            sportsList.forEach { sport ->
-                val selected = selectedSport == sport
-
-                Box(
-                    modifier = Modifier
-                        .background(
-                            color = if (selected) {
-                                AccentBlue
-                            } else {
-                                SurfaceColor
-                            },
-                            shape = RoundedCornerShape(20.dp)
-                        )
-                        .clickable {
-                            onSportChange(sport)
-                        }
-                        .padding(
-                            horizontal = 16.dp,
-                            vertical = 10.dp
-                        )
-                ) {
-                    Text(
-                        text = sport,
-                        color = if (selected) {
-                            Color.White
-                        } else {
-                            SecondaryText
-                        },
-                        fontSize = 12.sp,
-                        fontWeight = if (selected) {
-                            FontWeight.Bold
-                        } else {
-                            FontWeight.Medium
-                        }
-                    )
-                }
-            }
-        }
-
-        if (selectedSport !in listOf("Cricket", "Football")) {
-            Spacer(modifier = Modifier.height(12.dp))
-
-            ComingSoonMessage(
-                title = "$selectedSport",
-                description = "This feature is coming soon"
-            )
-        }
-    }
-}
-
-@Composable
-private fun ComingSoonMessage(
-    title: String,
-    description: String = "This feature is coming soon"
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                SurfaceColor,
-                RoundedCornerShape(12.dp)
-            )
-            .padding(18.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = title,
-            color = PrimaryText,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold
-        )
-
-        Spacer(modifier = Modifier.height(5.dp))
-
-        Text(
-            text = description,
-            color = SecondaryText,
-            fontSize = 12.sp,
-            textAlign = TextAlign.Center
-        )
-    }
-}
-
-@Composable
-private fun SportexXMainContent(
-    selectedNavigation: String,
-    selectedSport: String,
-    selectedFilter: String,
-    selectedCategory: String,
-    matches: List<MatchItem>,
-    allMatches: List<MatchItem>,
-    newsItems: List<NewsItem>,
-    eventItems: List<EventItem>,
-    isLoading: Boolean,
-    errorMessage: String,
-    lastUpdated: String,
-    onFilterChange: (String) -> Unit,
-    onCategoryChange: (String) -> Unit,
-    onMatchClick: (MatchItem) -> Unit,
-    onRefresh: () -> Unit
-) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(AppBackground)
     ) {
-        when (selectedNavigation) {
-            "Home", "Live" -> {
-                MatchHomeScreen(
-                    selectedSport = selectedSport,
-                    selectedFilter = selectedFilter,
+
+        MainHeader()
+
+        if (selectedSection == AppSection.HOME ||
+            selectedSection == AppSection.LIVE
+        ) {
+
+            SportsSelector(
+                selectedSport = selectedSport,
+                onSelect = {
+                    selectedSport = it
+                    selectedFilter = "Live"
+                }
+            )
+
+            MatchFilters(
+                selectedFilter = selectedFilter,
+                onSelect = {
+                    selectedFilter = it
+                }
+            )
+
+            if (selectedSport == "Cricket") {
+                CricketCategories(
                     selectedCategory = selectedCategory,
-                    matches = matches,
-                    allMatches = allMatches,
-                    isLoading = isLoading,
-                    errorMessage = errorMessage,
-                    lastUpdated = lastUpdated,
-                    onFilterChange = onFilterChange,
-                    onCategoryChange = onCategoryChange,
-                    onMatchClick = onMatchClick,
-                    onRefresh = onRefresh
+                    onSelect = {
+                        selectedCategory = it
+                    }
                 )
             }
+        }
 
-            "News" -> {
-                NewsScreen(
-                    newsItems = newsItems
-                )
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            MainSectionContent(
+                section = selectedSection,
+                sport = selectedSport,
+                filter = selectedFilter,
+                category = selectedCategory,
+                matches = matches,
+                selectedMatch = selectedMatch,
+                isLoading = isLoading,
+                errorMessage = errorMessage,
+                onMatchClick = {
+                    selectedMatch = it
+                    selectedSection = AppSection.MATCH_DETAILS
+                },
+                onBack = {
+                    selectedSection = AppSection.HOME
+                }
+            )
+        }
+
+        BottomNavigationBar(
+            selectedSection = selectedSection,
+            onSelect = {
+                selectedSection = it
+                selectedMatch = null
             }
+        )
+    }
+}
 
-            "Quiz" -> {
-                QuizScreen()
-            }
+@Composable
+private fun MainHeader() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceColor)
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .background(
+                    AccentBlue,
+                    RoundedCornerShape(13.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "S",
+                color = Color.White,
+                fontSize = 27.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+        }
 
-            "Stats" -> {
-                StatsScreen(
-                    selectedSport = selectedSport
-                )
-            }
+        Spacer(Modifier.width(11.dp))
 
-            else -> {
-                MoreScreen(
-                    eventItems = eventItems
+        Column {
+            Text(
+                "SPORTEXX",
+                color = PrimaryText,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.5.sp
+            )
+
+            Text(
+                "SPORTS  •  NEWS  •  STATS",
+                color = SecondaryText,
+                fontSize = 9.sp,
+                letterSpacing = 1.sp
+            )
+        }
+
+        Spacer(Modifier.weight(1f))
+
+        Text(
+            "LIVE",
+            color = LiveGreen,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun SportsSelector(
+    selectedSport: String,
+    onSelect: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        sportsList.forEach { sport ->
+            val selected = selectedSport == sport
+
+            Box(
+                modifier = Modifier
+                    .background(
+                        if (selected) AccentBlue else CardColor,
+                        RoundedCornerShape(20.dp)
+                    )
+                    .clickable {
+                        onSelect(sport)
+                    }
+                    .padding(
+                        horizontal = 16.dp,
+                        vertical = 10.dp
+                    )
+            ) {
+                Text(
+                    sport,
+                    color = if (selected) Color.White
+                    else SecondaryText,
+                    fontSize = 13.sp,
+                    fontWeight = if (selected) FontWeight.Bold
+                    else FontWeight.Medium
                 )
             }
         }
@@ -1124,228 +965,184 @@ private fun SportexXMainContent(
 }
 
 @Composable
-private fun MatchHomeScreen(
-    selectedSport: String,
+private fun MatchFilters(
     selectedFilter: String,
+    onSelect: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        matchFilters.forEach { filter ->
+            val selected = selectedFilter == filter
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .background(
+                        if (selected) SoftBlue else SurfaceColor,
+                        RoundedCornerShape(10.dp)
+                    )
+                    .clickable {
+                        onSelect(filter)
+                    }
+                    .padding(vertical = 11.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    filter,
+                    color = if (selected) PrimaryText
+                    else SecondaryText,
+                    fontSize = 13.sp,
+                    fontWeight = if (selected) FontWeight.Bold
+                    else FontWeight.Normal
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CricketCategories(
     selectedCategory: String,
+    onSelect: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        cricketCategories.forEach { category ->
+            val selected = selectedCategory == category
+
+            Column(
+                modifier = Modifier
+                    .clickable {
+                        onSelect(category)
+                    },
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    category,
+                    color = if (selected) AccentBlue
+                    else SecondaryText,
+                    fontSize = 12.sp,
+                    fontWeight = if (selected) FontWeight.Bold
+                    else FontWeight.Normal
+                )
+
+                Spacer(Modifier.height(5.dp))
+
+                Box(
+                    modifier = Modifier
+                        .width(30.dp)
+                        .height(2.dp)
+                        .background(
+                            if (selected) AccentBlue
+                            else Color.Transparent
+                        )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MainSectionContent(
+    section: AppSection,
+    sport: String,
+    filter: String,
+    category: String,
     matches: List<MatchItem>,
-    allMatches: List<MatchItem>,
+    selectedMatch: MatchItem?,
     isLoading: Boolean,
     errorMessage: String,
-    lastUpdated: String,
-    onFilterChange: (String) -> Unit,
-    onCategoryChange: (String) -> Unit,
     onMatchClick: (MatchItem) -> Unit,
-    onRefresh: () -> Unit
+    onBack: () -> Unit
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    horizontal = 16.dp,
-                    vertical = 12.dp
-                ),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = if (selectedSport == "Cricket") {
-                    "Cricket Matches"
-                } else {
-                    "Football Matches"
-                },
-                color = PrimaryText,
-                fontSize = 19.sp,
-                fontWeight = FontWeight.Bold
-            )
-
-            Text(
-                text = "Refresh",
-                color = AccentBlue,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.clickable {
-                    onRefresh()
-                }
-            )
-        }
-
-        if (selectedSport == "Cricket") {
-            Row(
+    when (section) {
+        AppSection.HOME,
+        AppSection.LIVE -> {
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 14.dp)
             ) {
-                cricketCategories.forEach { category ->
-                    FilterChipItem(
-                        text = category,
-                        selected = selectedCategory == category,
-                        onClick = {
-                            onCategoryChange(category)
-                        }
+                Text(
+                    if (filter == "Live") "Live Matches"
+                    else "$filter Matches",
+                    color = PrimaryText,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(
+                        top = 12.dp,
+                        bottom = 10.dp
                     )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            matchFilters.forEach { filter ->
-                FilterChipItem(
-                    text = filter,
-                    selected = selectedFilter == filter,
-                    onClick = {
-                        onFilterChange(filter)
-                    }
                 )
-            }
-        }
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        if (lastUpdated.isNotBlank()) {
-            Text(
-                text = "Last updated: $lastUpdated",
-                color = SecondaryText,
-                fontSize = 10.sp,
-                modifier = Modifier.padding(
-                    horizontal = 16.dp,
-                    vertical = 4.dp
-                )
-            )
-        }
-
-        when {
-            isLoading -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
+                if (isLoading) {
                     CircularProgressIndicator(
-                        color = AccentBlue
+                        color = AccentBlue,
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .padding(30.dp)
                     )
-                }
-            }
-
-            matches.isEmpty() -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment =
-                            Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = errorMessage.ifBlank {
-                                "No ${selectedFilter.lowercase()} matches available."
-                            },
-                            color = SecondaryText,
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Text(
-                            text = "Tap Refresh to try again",
-                            color = AccentBlue,
-                            fontSize = 12.sp,
-                            modifier = Modifier.clickable {
-                                onRefresh()
-                            }
-                        )
-                    }
-                }
-            }
-
-            else -> {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentPadding = PaddingValues(
-                        start = 12.dp,
-                        end = 12.dp,
-                        bottom = 16.dp
-                    ),
-                    verticalArrangement =
-                        Arrangement.spacedBy(10.dp)
-                ) {
-                    items(
-                        items = matches,
-                        key = {
-                            it.id.ifBlank {
-                                "${it.home}_${it.away}_${it.date}"
-                            }
-                        }
-                    ) { match ->
+                } else if (matches.isEmpty()) {
+                    Text(
+                        errorMessage.ifBlank {
+                            "No matches available right now."
+                        },
+                        color = SecondaryText,
+                        modifier = Modifier.padding(20.dp)
+                    )
+                } else {
+                    matches.forEach { match ->
                         MatchCard(
                             match = match,
                             onClick = {
                                 onMatchClick(match)
                             }
                         )
+                        Spacer(Modifier.height(11.dp))
                     }
+                }
+
+                if (sport == "Cricket") {
+                    Text(
+                        "Category: $category",
+                        color = SecondaryText,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(
+                            top = 8.dp,
+                            bottom = 16.dp
+                        )
+                    )
                 }
             }
         }
-    }
-}
 
-@Composable
-private fun FilterChipItem(
-    text: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .background(
-                color = if (selected) {
-                    SoftBlue
-                } else {
-                    SurfaceColor
-                },
-                shape = RoundedCornerShape(18.dp)
-            )
-            .clickable {
-                onClick()
-            }
-            .padding(
-                horizontal = 13.dp,
-                vertical = 9.dp
-            )
-    ) {
-        Text(
-            text = text,
-            color = if (selected) {
-                PrimaryText
+        AppSection.MATCH_DETAILS -> {
+            if (selectedMatch != null) {
+                MatchCentre(
+                    match = selectedMatch,
+                    onBack = onBack
+                )
             } else {
-                SecondaryText
-            },
-            fontSize = 11.sp,
-            fontWeight = if (selected) {
-                FontWeight.Bold
-            } else {
-                FontWeight.Normal
+                ComingSoonScreen("Match Centre")
             }
-        )
+        }
+
+        AppSection.NEWS -> ComingSoonScreen("Sports News")
+        AppSection.QUIZ -> ComingSoonScreen("Sports Quiz")
+        AppSection.STATS -> ComingSoonScreen("Sports Stats")
+        AppSection.MORE -> MoreScreen()
+        AppSection.RANKINGS -> ComingSoonScreen("Rankings")
+        AppSection.EVENTS -> ComingSoonScreen("Major Events")
     }
 }
 
@@ -1359,7 +1156,7 @@ private fun MatchCard(
             .fillMaxWidth()
             .background(
                 CardColor,
-                RoundedCornerShape(14.dp)
+                RoundedCornerShape(15.dp)
             )
             .clickable {
                 onClick()
@@ -1367,191 +1164,156 @@ private fun MatchCard(
             .padding(14.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = match.competition.ifBlank {
+                match.competition.ifBlank {
                     match.sport
                 },
                 color = SecondaryText,
                 fontSize = 11.sp,
-                maxLines = 1
+                modifier = Modifier.weight(1f)
             )
 
-            Text(
-                text = match.status.ifBlank {
-                    match.date
-                },
-                color = if (match.isLive) {
-                    LiveGreen
-                } else {
-                    SecondaryText
-                },
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                horizontalAlignment = Alignment.Start
-            ) {
-                if (match.homeLogo.isNotBlank()) {
-                    AsyncImage(
-                        model = match.homeLogo,
-                        contentDescription = match.home,
-                        modifier = Modifier.size(34.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(5.dp))
-
+            if (match.isLive) {
                 Text(
-                    text = match.home.ifBlank { "Team 1" },
-                    color = PrimaryText,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2
+                    "● LIVE",
+                    color = LiveGreen,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
                 )
-            }
-
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+            } else {
                 Text(
-                    text = if (
-                        match.homeScore.isNotBlank() ||
-                        match.awayScore.isNotBlank()
-                    ) {
-                        "${match.homeScore} - ${match.awayScore}"
-                    } else {
-                        "VS"
+                    match.status.ifBlank {
+                        match.date
                     },
-                    color = PrimaryText,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.ExtraBold
-                )
-
-                if (match.time.isNotBlank()) {
-                    Text(
-                        text = match.time,
-                        color = SecondaryText,
-                        fontSize = 10.sp
-                    )
-                }
-            }
-
-            Column(
-                modifier = Modifier.weight(1f),
-                horizontalAlignment = Alignment.End
-            ) {
-                if (match.awayLogo.isNotBlank()) {
-                    AsyncImage(
-                        model = match.awayLogo,
-                        contentDescription = match.away,
-                        modifier = Modifier.size(34.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(5.dp))
-
-                Text(
-                    text = match.away.ifBlank { "Team 2" },
-                    color = PrimaryText,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.End,
-                    maxLines = 2
+                    color = SecondaryText,
+                    fontSize = 10.sp
                 )
             }
         }
 
-        if (match.sport == "Football" &&
+        Spacer(Modifier.height(13.dp))
+
+        MatchTeamRow(
+            name = match.home,
+            logo = match.homeLogo,
+            score = match.homeScore
+        )
+
+        Spacer(Modifier.height(10.dp))
+
+        MatchTeamRow(
+            name = match.away,
+            logo = match.awayLogo,
+            score = match.awayScore
+        )
+
+        if (match.sport.equals("Football", true) &&
             match.goalEvents.isNotEmpty()
         ) {
-            Spacer(modifier = Modifier.height(12.dp))
-
-            HorizontalDivider(
-                color = DividerColor
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(Modifier.height(12.dp))
 
             Text(
-                text = "GOAL TIMELINE",
+                goalSummary(match),
                 color = AccentBlue,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold
-            )
-
-            match.goalEvents.forEach { event ->
-                Text(
-                    text = formatGoalEvent(event),
-                    color = PrimaryText,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(
-                        top = 5.dp
-                    )
-                )
-            }
-        }
-
-        if (match.result.isNotBlank()) {
-            Spacer(modifier = Modifier.height(9.dp))
-
-            Text(
-                text = match.result,
-                color = SecondaryText,
                 fontSize = 11.sp
             )
         }
 
-        if (match.venue.isNotBlank()) {
-            Spacer(modifier = Modifier.height(5.dp))
-
-            Text(
-                text = match.venue,
-                color = SecondaryText,
-                fontSize = 10.sp
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
 
         Text(
-            text = "View Match Details  →",
-            color = AccentBlue,
-            fontSize = 11.sp,
+            listOf(match.date, match.time, match.venue)
+                .filter { it.isNotBlank() }
+                .joinToString("  •  "),
+            color = SecondaryText,
+            fontSize = 10.sp
+        )
+
+        if (match.result.isNotBlank()) {
+            Spacer(Modifier.height(5.dp))
+            Text(
+                match.result,
+                color = PrimaryText,
+                fontSize = 11.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun MatchTeamRow(
+    name: String,
+    logo: String,
+    score: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (logo.isNotBlank()) {
+            AsyncImage(
+                model = logo,
+                contentDescription = name,
+                modifier = Modifier.size(28.dp)
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .background(
+                        SoftBlue,
+                        RoundedCornerShape(50)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    name.take(1).uppercase(),
+                    color = PrimaryText,
+                    fontSize = 12.sp
+                )
+            }
+        }
+
+        Spacer(Modifier.width(10.dp))
+
+        Text(
+            name,
+            color = PrimaryText,
+            fontSize = 14.sp,
+            modifier = Modifier.weight(1f),
+            fontWeight = FontWeight.Medium
+        )
+
+        Text(
+            score.ifBlank { "—" },
+            color = PrimaryText,
+            fontSize = 15.sp,
             fontWeight = FontWeight.Bold
         )
     }
 }
 
 @Composable
-private fun MatchDetailsScreen(
-    match: MatchItem?,
+private fun MatchCentre(
+    match: MatchItem,
     onBack: () -> Unit
 ) {
-    var selectedTab by remember(match?.id) {
-        mutableStateOf("Info")
+    var selectedTab by remember {
+        mutableStateOf("Overview")
     }
 
-    if (match == null) {
-        ComingSoonMessage(
-            title = "Match details unavailable"
+    val tabs = if (match.sport.equals("Football", true)) {
+        listOf(
+            "Info",
+            "Overview",
+            "Lineups",
+            "Stats",
+            "H2H",
+            "Highlights"
         )
-        return
-    }
-
-    val tabs = if (match.sport == "Cricket") {
+    } else {
         listOf(
             "Info",
             "Overview",
@@ -1561,551 +1323,213 @@ private fun MatchDetailsScreen(
             "H2H",
             "Highlights"
         )
-    } else {
-        listOf(
-            "Info",
-            "Overview",
-            "Lineups",
-            "Stats",
-            "H2H",
-            "Highlights"
-        )
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(AppBackground)
+            .padding(14.dp)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "← Back",
+                "‹ Back",
                 color = AccentBlue,
                 fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
                 modifier = Modifier.clickable {
                     onBack()
                 }
             )
 
-            Spacer(modifier = Modifier.width(18.dp))
+            Spacer(Modifier.width(16.dp))
 
             Text(
-                text = "MATCH CENTRE",
+                "MATCH CENTRE",
                 color = PrimaryText,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
             )
         }
 
-        MatchCard(
-            match = match,
-            onClick = {}
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            tabs.forEach { tab ->
-                FilterChipItem(
-                    text = tab,
-                    selected = selectedTab == tab,
-                    onClick = {
-                        selectedTab = tab
-                    }
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        when (selectedTab) {
-            "Info" -> MatchInfoContent(match)
-
-            "Overview" -> MatchOverviewContent(match)
-
-            "Scorecard" -> {
-                ComingSoonMessage(
-                    title = "Scorecard",
-                    description = "This feature is coming soon"
-                )
-            }
-
-            "Squad" -> {
-                ComingSoonMessage(
-                    title = "Squad",
-                    description = "This feature is coming soon"
-                )
-            }
-
-            "Lineups" -> {
-                ComingSoonMessage(
-                    title = "Lineups",
-                    description = "This feature is coming soon"
-                )
-            }
-
-            "Stats" -> {
-                ComingSoonMessage(
-                    title = "Match Stats",
-                    description = "This feature is coming soon"
-                )
-            }
-
-            "H2H" -> {
-                ComingSoonMessage(
-                    title = "Head to Head",
-                    description = "This feature is coming soon"
-                )
-            }
-
-            "Highlights" -> {
-                ComingSoonMessage(
-                    title = "Highlights",
-                    description = "This feature is coming soon"
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun MatchInfoContent(
-    match: MatchItem
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp)
-            .background(
-                SurfaceColor,
-                RoundedCornerShape(12.dp)
-            )
-            .padding(16.dp)
-    ) {
-        MatchInfoRow("Sport", match.sport)
-        MatchInfoRow("Competition", match.competition)
-        MatchInfoRow("Date", match.date)
-        MatchInfoRow("Time", match.time)
-        MatchInfoRow("Venue", match.venue)
-        MatchInfoRow("Status", match.status)
-        MatchInfoRow("Result", match.result)
-    }
-}
-
-@Composable
-private fun MatchInfoRow(
-    label: String,
-    value: String
-) {
-    if (value.isBlank()) return
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(
-            text = label,
-            color = SecondaryText,
-            fontSize = 12.sp
-        )
-
-        Text(
-            text = value,
-            color = PrimaryText,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.End
-        )
-    }
-
-    HorizontalDivider(
-        color = DividerColor
-    )
-}
-
-@Composable
-private fun MatchOverviewContent(
-    match: MatchItem
-) {
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(bottom = 20.dp)
-    ) {
-        item {
-            Text(
-                text = "Match Overview",
-                color = PrimaryText,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        item {
-            MatchInfoContent(match)
-        }
-
-        if (match.sport == "Football") {
-            item {
-                Text(
-                    text = "Goal Timeline",
-                    color = PrimaryText,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            if (match.goalEvents.isEmpty()) {
-                item {
-                    ComingSoonMessage(
-                        title = "Goal Timeline",
-                        description = "Goal events are not available from the API yet."
-                    )
-                }
-            } else {
-                items(match.goalEvents) { event ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                CardColor,
-                                RoundedCornerShape(10.dp)
-                            )
-                            .padding(13.dp)
-                    ) {
-                        Text(
-                            text = formatGoalEvent(event),
-                            color = PrimaryText,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun NewsScreen(
-    newsItems: List<NewsItem>
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        Text(
-            text = "Sports News",
-            color = PrimaryText,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold
-        )
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        if (newsItems.isEmpty()) {
-            ComingSoonMessage(
-                title = "Sports News",
-                description = "News feed is not connected yet."
-            )
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(newsItems) { news ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                CardColor,
-                                RoundedCornerShape(12.dp)
-                            )
-                            .padding(14.dp)
-                    ) {
-                        if (news.image.isNotBlank()) {
-                            AsyncImage(
-                                model = news.image,
-                                contentDescription = news.title,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(170.dp)
-                            )
-
-                            Spacer(
-                                modifier = Modifier.height(10.dp)
-                            )
-                        }
-
-                        Text(
-                            text = news.title,
-                            color = PrimaryText,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-
-                        Spacer(
-                            modifier = Modifier.height(6.dp)
-                        )
-
-                        Text(
-                            text = news.description,
-                            color = SecondaryText,
-                            fontSize = 12.sp
-                        )
-
-                        if (news.source.isNotBlank()) {
-                            Text(
-                                text = news.source,
-                                color = AccentBlue,
-                                fontSize = 10.sp,
-                                modifier = Modifier.padding(top = 8.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun QuizScreen() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        Text(
-            text = "Sports Quiz",
-            color = PrimaryText,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold
-        )
-
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(Modifier.height(15.dp))
 
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(
-                    SurfaceColor,
-                    RoundedCornerShape(14.dp)
+                    CardColor,
+                    RoundedCornerShape(15.dp)
                 )
-                .padding(18.dp)
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Test Your Sports Knowledge",
-                color = PrimaryText,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = "Play free quizzes and collect points.",
+                match.competition.ifBlank {
+                    match.sport
+                },
                 color = SecondaryText,
                 fontSize = 12.sp
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(Modifier.height(15.dp))
 
             Text(
-                text = "No entry fee • No deposits • No cash rewards",
+                match.home,
+                color = PrimaryText,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            Text(
+                "${match.homeScore.ifBlank { "—" }}  -  ${match.awayScore.ifBlank { "—" }}",
                 color = AccentBlue,
+                fontSize = 25.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+
+            Text(
+                match.away,
+                color = PrimaryText,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(Modifier.height(9.dp))
+
+            Text(
+                match.status.ifBlank { match.date },
+                color = SecondaryText,
                 fontSize = 11.sp
             )
-
-            Spacer(modifier = Modifier.height(15.dp))
-
-            ComingSoonMessage(
-                title = "Quiz Coming Soon"
-            )
         }
-    }
-}
 
-@Composable
-private fun StatsScreen(
-    selectedSport: String
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        Text(
-            text = "$selectedSport Stats",
-            color = PrimaryText,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold
-        )
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        ComingSoonMessage(
-            title = "Sports Statistics",
-            description = "Verified statistics and rankings will appear here when supported by the API."
-        )
-    }
-}
-
-@Composable
-private fun MoreScreen(
-    eventItems: List<EventItem>
-) {
-    var selectedEventSection by remember {
-        mutableStateOf("Live Events")
-    }
-
-    val eventSections = listOf(
-        "Live Events",
-        "Schedules",
-        "Results",
-        "Medal Tally",
-        "Country Performance",
-        "Upcoming Events"
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        Text(
-            text = "More",
-            color = PrimaryText,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(Modifier.height(13.dp))
 
         Row(
-            modifier = Modifier.horizontalScroll(
-                rememberScrollState()
-            ),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(17.dp)
         ) {
-            eventSections.forEach { section ->
-                FilterChipItem(
-                    text = section,
-                    selected = selectedEventSection == section,
-                    onClick = {
-                        selectedEventSection = section
-                    }
-                )
-            }
-        }
+            tabs.forEach { tab ->
+                val selected = selectedTab == tab
 
-        Spacer(modifier = Modifier.height(14.dp))
-
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            item {
-                Text(
-                    text = "Olympics",
-                    color = PrimaryText,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            item {
-                EventSectionContent(
-                    eventItems = eventItems,
-                    selectedSection = selectedEventSection,
-                    eventType = "Olympics"
-                )
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "Commonwealth Games",
-                    color = PrimaryText,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            item {
-                EventSectionContent(
-                    eventItems = eventItems,
-                    selectedSection = selectedEventSection,
-                    eventType = "Commonwealth Games"
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun EventSectionContent(
-    eventItems: List<EventItem>,
-    selectedSection: String,
-    eventType: String
-) {
-    val matchingEvents = eventItems.filter {
-        it.name.contains(eventType, ignoreCase = true) ||
-            it.sport.contains(eventType, ignoreCase = true)
-    }
-
-    if (matchingEvents.isEmpty()) {
-        ComingSoonMessage(
-            title = selectedSection,
-            description = "Verified $eventType data is not available yet."
-        )
-    } else {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            matchingEvents.forEach { event ->
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            CardColor,
-                            RoundedCornerShape(10.dp)
-                        )
-                        .padding(12.dp)
+                    modifier = Modifier.clickable {
+                        selectedTab = tab
+                    }
                 ) {
                     Text(
-                        text = event.name,
+                        tab,
+                        color = if (selected) AccentBlue
+                        else SecondaryText,
+                        fontSize = 12.sp,
+                        fontWeight = if (selected) FontWeight.Bold
+                        else FontWeight.Normal
+                    )
+
+                    Spacer(Modifier.height(5.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .width(25.dp)
+                            .height(2.dp)
+                            .background(
+                                if (selected) AccentBlue
+                                else Color.Transparent
+                            )
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(15.dp))
+
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+        ) {
+            when (selectedTab) {
+                "Info" -> {
+                    DetailRow("Sport", match.sport)
+                    DetailRow("Competition", match.competition)
+                    DetailRow("Date", match.date)
+                    DetailRow("Time", match.time)
+                    DetailRow("Venue", match.venue)
+                    DetailRow("Result", match.result)
+                }
+
+                "Overview" -> {
+                    Text(
+                        "Match Overview",
                         color = PrimaryText,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
+                        fontSize = 16.sp
                     )
 
-                    Text(
-                        text = event.location,
-                        color = SecondaryText,
-                        fontSize = 11.sp
-                    )
+                    Spacer(Modifier.height(12.dp))
 
-                    Text(
-                        text = "${event.startDate} - ${event.endDate}",
-                        color = SecondaryText,
-                        fontSize = 10.sp
+                    if (match.sport.equals("Football", true)) {
+                        Text(
+                            "Goal Timeline",
+                            color = PrimaryText,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+
+                        Spacer(Modifier.height(10.dp))
+
+                        if (match.goalEvents.isEmpty()) {
+                            ComingSoonScreen(
+                                "Goal events are not available yet"
+                            )
+                        } else {
+                            match.goalEvents.forEach { goal ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        goalLabel(goal),
+                                        color = PrimaryText,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+
+                                    if (goal.assist.isNotBlank()) {
+                                        Text(
+                                            "Assist: ${goal.assist}",
+                                            color = SecondaryText,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+
+                                Divider(
+                                    color = DividerColor
+                                )
+                            }
+                        }
+                    } else {
+                        Text(
+                            "Cricket match overview data will appear when supported by the API.",
+                            color = SecondaryText,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+
+                "Lineups",
+                "Scorecard",
+                "Squad",
+                "Stats",
+                "H2H",
+                "Highlights" -> {
+                    ComingSoonScreen(
+                        "$selectedTab data is not available yet"
                     )
                 }
             }
@@ -2114,49 +1538,575 @@ private fun EventSectionContent(
 }
 
 @Composable
-private fun SportexXBottomNavigation(
-    selectedItem: String,
-    onItemSelected: (String) -> Unit
+private fun DetailRow(
+    label: String,
+    value: String
 ) {
-    NavigationBar(
-        containerColor = SurfaceColor,
-        contentColor = PrimaryText
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        navigationItems.forEach { item ->
-            val selected = selectedItem == item
+        Text(
+            label,
+            color = SecondaryText,
+            fontSize = 13.sp,
+            modifier = Modifier.weight(1f)
+        )
 
-            NavigationBarItem(
-                selected = selected,
-                onClick = {
-                    onItemSelected(item)
-                },
-                icon = {
-                    Text(
-                        text = when (item) {
-                            "Home" -> "⌂"
-                            "Live" -> "●"
-                            "News" -> "▤"
-                            "Quiz" -> "?"
-                            "Stats" -> "▥"
-                            else -> "⋯"
-                        },
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                label = {
-                    Text(
-                        text = item,
-                        fontSize = 10.sp
-                    )
-                },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = AccentBlue,
-                    selectedTextColor = PrimaryText,
-                    indicatorColor = SoftBlue,
-                    unselectedIconColor = SecondaryText,
-                    unselectedTextColor = SecondaryText
+        Text(
+            value.ifBlank { "Not available" },
+            color = PrimaryText,
+            fontSize = 13.sp
+        )
+    }
+
+    Divider(color = DividerColor)
+}
+
+@Composable
+private fun BottomNavigationBar(
+    selectedSection: AppSection,
+    onSelect: (AppSection) -> Unit
+) {
+    val items = listOf(
+        Triple("Home", "⌂", AppSection.HOME),
+        Triple("Live", "◉", AppSection.LIVE),
+        Triple("News", "▤", AppSection.NEWS),
+        Triple("Quiz", "?", AppSection.QUIZ),
+        Triple("Stats", "▥", AppSection.STATS),
+        Triple("More", "⋯", AppSection.MORE)
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceColor)
+            .navigationBarsPadding()
+            .padding(
+                horizontal = 5.dp,
+                vertical = 9.dp
+            ),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        items.forEach { item ->
+            val selected = selectedSection == item.third
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable {
+                        onSelect(item.third)
+                    }
+                    .padding(vertical = 3.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    item.second,
+                    color = if (selected) AccentBlue
+                    else SecondaryText,
+                    fontSize = 21.sp,
+                    fontWeight = FontWeight.Bold
                 )
+
+                Spacer(Modifier.height(3.dp))
+
+                Text(
+                    item.first,
+                    color = if (selected) PrimaryText
+                    else SecondaryText,
+                    fontSize = 10.sp,
+                    fontWeight = if (selected) FontWeight.Bold
+                    else FontWeight.Normal
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoreScreen() {
+    val options = listOf(
+        "Football Rankings",
+        "Cricket Rankings",
+        "Major Events",
+        "Olympics",
+        "Commonwealth Games",
+        "Points System",
+        "About SportexX"
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp)
+    ) {
+        Text(
+            "More",
+            color = PrimaryText,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(Modifier.height(15.dp))
+
+        options.forEach { option ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp)
+                    .background(
+                        CardColor,
+                        RoundedCornerShape(12.dp)
+                    )
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    option,
+                    color = PrimaryText,
+                    fontSize = 14.sp,
+                    modifier = Modifier.weight(1f)
+                )
+
+                Text(
+                    "›",
+                    color = AccentBlue,
+                    fontSize = 22.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ComingSoonScreen(
+    message: String
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(22.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            message,
+            color = SecondaryText,
+            fontSize = 13.sp,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+private fun parseTeamRankings(
+    response: JSONObject
+): List<TeamRanking> {
+    val root = response.unwrapData()
+
+    val array = root.firstArray(
+        "standings",
+        "table",
+        "teams",
+        "rankings"
+    ) ?: return emptyList()
+
+    return array.toObjectList().mapIndexedNotNull {
+        index, item ->
+
+        val teamObject = item.firstObject(
+            "team",
+            "participant"
+        )
+
+        val teamName = teamObject?.firstString(
+            "name",
+            "teamName"
+        ) ?: item.firstString(
+            "teamName",
+            "name",
+            "team"
+        )
+
+        if (teamName.isBlank()) {
+            return@mapIndexedNotNull null
+        }
+
+        val played = item.firstInt(
+            "played",
+            "matches",
+            "P"
+        )
+
+        val won = item.firstInt(
+            "won",
+            "wins",
+            "W"
+        )
+
+        val drawn = item.firstInt(
+            "drawn",
+            "draws",
+            "D"
+        )
+
+        val lost = item.firstInt(
+            "lost",
+            "losses",
+            "L"
+        )
+
+        val goalsFor = item.firstInt(
+            "goalsFor",
+            "goals_for",
+            "GF"
+        )
+
+        val goalsAgainst = item.firstInt(
+            "goalsAgainst",
+            "goals_against",
+            "GA"
+        )
+
+        TeamRanking(
+            position = item.firstInt(
+                "position",
+                "rank",
+                "place"
+            ).takeIf { it > 0 } ?: index + 1,
+            team = teamName,
+            played = played,
+            won = won,
+            drawn = drawn,
+            lost = lost,
+            goalsFor = goalsFor,
+            goalsAgainst = goalsAgainst,
+            goalDifference = item.firstInt(
+                "goalDifference",
+                "goal_difference",
+                "GD"
+            ).takeIf { it != 0 } ?: goalsFor - goalsAgainst,
+            points = item.firstInt(
+                "points",
+                "pts",
+                "Pts"
+            ),
+            logo = teamObject?.firstString(
+                "logo",
+                "crest",
+                "image"
+            ) ?: ""
+        )
+    }
+}
+
+private fun parsePlayerRankings(
+    response: JSONObject,
+    category: String
+): List<PlayerRanking> {
+    val root = response.unwrapData()
+
+    val array = root.firstArray(
+        "players",
+        "rankings",
+        "leaders",
+        "topPlayers"
+    ) ?: return emptyList()
+
+    return array.toObjectList().mapIndexedNotNull {
+        index, item ->
+
+        val playerObject = item.firstObject(
+            "player",
+            "athlete"
+        )
+
+        val playerName = playerObject?.firstString(
+            "name",
+            "fullName"
+        ) ?: item.firstString(
+            "playerName",
+            "name"
+        )
+
+        if (playerName.isBlank()) {
+            return@mapIndexedNotNull null
+        }
+
+        PlayerRanking(
+            position = item.firstInt(
+                "position",
+                "rank"
+            ).takeIf { it > 0 } ?: index + 1,
+            name = playerName,
+            team = item.firstString(
+                "teamName",
+                "team",
+                "club"
+            ),
+            value = item.firstString(
+                "value",
+                "total",
+                "goals",
+                "assists",
+                "appearances",
+                "cleanSheets"
+            ),
+            category = category,
+            photo = playerObject?.firstString(
+                "photo",
+                "image"
+            ) ?: ""
+        )
+    }
+}
+
+private fun parseNews(
+    response: JSONObject
+): List<NewsItem> {
+    val root = response.unwrapData()
+
+    val array = root.firstArray(
+        "news",
+        "articles",
+        "items",
+        "results"
+    ) ?: return emptyList()
+
+    return array.toObjectList().mapNotNull { item ->
+        val title = item.firstString(
+            "title",
+            "headline"
+        )
+
+        if (title.isBlank()) {
+            return@mapNotNull null
+        }
+
+        NewsItem(
+            title = title,
+            description = item.firstString(
+                "description",
+                "summary",
+                "content"
+            ),
+            image = item.firstString(
+                "image",
+                "imageUrl",
+                "thumbnail"
+            ),
+            source = item.firstString(
+                "source",
+                "publisher"
+            ),
+            publishedAt = item.firstString(
+                "publishedAt",
+                "date"
+            ),
+            url = item.firstString(
+                "url",
+                "link"
+            )
+        )
+    }
+}
+
+private fun parseEvents(
+    response: JSONObject
+): List<EventItem> {
+    val root = response.unwrapData()
+
+    val array = root.firstArray(
+        "events",
+        "competitions",
+        "tournaments",
+        "items"
+    ) ?: return emptyList()
+
+    return array.toObjectList().mapNotNull { item ->
+        val name = item.firstString(
+            "name",
+            "title",
+            "eventName"
+        )
+
+        if (name.isBlank()) {
+            return@mapNotNull null
+        }
+
+        EventItem(
+            name = name,
+            sport = item.firstString(
+                "sport",
+                "category"
+            ),
+            location = item.firstString(
+                "location",
+                "venue",
+                "host"
+            ),
+            startDate = item.firstString(
+                "startDate",
+                "start_date",
+                "date"
+            ),
+            endDate = item.firstString(
+                "endDate",
+                "end_date"
+            ),
+            status = item.firstString(
+                "status",
+                "state"
+            )
+        )
+    }
+}
+
+@Composable
+private fun RankingTeamCard(
+    ranking: TeamRanking
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                CardColor,
+                RoundedCornerShape(12.dp)
+            )
+            .padding(13.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "#${ranking.position}",
+                color = AccentBlue,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp
+            )
+
+            Spacer(Modifier.width(10.dp))
+
+            Text(
+                ranking.team,
+                color = PrimaryText,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+
+            Text(
+                "${ranking.points} Pts",
+                color = AccentBlue,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        Text(
+            "P ${ranking.played}  •  W ${ranking.won}  •  D ${ranking.drawn}  •  L ${ranking.lost}",
+            color = SecondaryText,
+            fontSize = 11.sp
+        )
+
+        Text(
+            "GF ${ranking.goalsFor}  •  GA ${ranking.goalsAgainst}  •  GD ${ranking.goalDifference}",
+            color = SecondaryText,
+            fontSize = 11.sp
+        )
+    }
+}
+
+@Composable
+private fun RankingPlayerCard(
+    ranking: PlayerRanking
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                CardColor,
+                RoundedCornerShape(12.dp)
+            )
+            .padding(13.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            "#${ranking.position}",
+            color = AccentBlue,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(Modifier.width(12.dp))
+
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(
+                ranking.name,
+                color = PrimaryText,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp
+            )
+
+            Text(
+                ranking.team,
+                color = SecondaryText,
+                fontSize = 11.sp
+            )
+        }
+
+        Text(
+            ranking.value,
+            color = AccentBlue,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun EventCard(
+    event: EventItem
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                CardColor,
+                RoundedCornerShape(12.dp)
+            )
+            .padding(14.dp)
+    ) {
+        Text(
+            event.name,
+            color = PrimaryText,
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp
+        )
+
+        Spacer(Modifier.height(7.dp))
+
+        Text(
+            listOf(
+                event.sport,
+                event.location,
+                event.startDate,
+                event.endDate
+            ).filter { it.isNotBlank() }
+                .joinToString(" • "),
+            color = SecondaryText,
+            fontSize = 11.sp
+        )
+
+        if (event.status.isNotBlank()) {
+            Spacer(Modifier.height(5.dp))
+
+            Text(
+                event.status,
+                color = AccentBlue,
+                fontSize = 11.sp
             )
         }
     }
